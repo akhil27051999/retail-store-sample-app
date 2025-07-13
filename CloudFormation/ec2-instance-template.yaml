@@ -131,36 +131,78 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          yum update -y
-          yum install -y htop wget curl git unzip
           
-          # Install AWS CLI v2
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install
+          # Detect OS and set variables
+          if [ -f /etc/os-release ]; then
+              . /etc/os-release
+              OS=$NAME
+              VER=$VERSION_ID
+          fi
           
-          # Install kubectl
-          curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.28.3/2023-11-14/bin/linux/amd64/kubectl
-          chmod +x ./kubectl
-          sudo mv ./kubectl /usr/local/bin
-          
-          # Install eksctl
-          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-          sudo mv /tmp/eksctl /usr/local/bin
-          
-          # Install Helm
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          
-          # Install SSM Agent (usually pre-installed on Amazon Linux 2)
-          yum install -y amazon-ssm-agent
-          systemctl enable amazon-ssm-agent
-          systemctl start amazon-ssm-agent
-          
-          # Create kubectl config directory
-          mkdir -p /home/ec2-user/.kube
-          chown ec2-user:ec2-user /home/ec2-user/.kube
+          # Ubuntu 24.04 Installation
+          if [[ "$OS" == *"Ubuntu"* ]]; then
+              apt update -y
+              apt install -y curl wget git unzip htop awscli
+              
+              # Install kubectl for Ubuntu
+              curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.7/2025-04-17/bin/linux/amd64/kubectl
+              chmod +x ./kubectl
+              mkdir -p $HOME/bin && cp ./kubectl $HOME/bin/kubectl
+              sudo cp ./kubectl /usr/local/bin/kubectl
+              
+              # Install eksctl
+              curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+              sudo mv /tmp/eksctl /usr/local/bin
+              
+              # Install Helm
+              curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+              
+              # Install SSM Agent for Ubuntu
+              snap install amazon-ssm-agent --classic
+              systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service
+              systemctl start snap.amazon-ssm-agent.amazon-ssm-agent.service
+              
+              # Create kubectl config directory for ubuntu user
+              mkdir -p /home/ubuntu/.kube
+              chown ubuntu:ubuntu /home/ubuntu/.kube
+              
+              # Add PATH to ubuntu user's bashrc
+              echo 'export PATH=$HOME/bin:$PATH' >> /home/ubuntu/.bashrc
+              
+          # Amazon Linux 2 Installation
+          else
+              yum update -y
+              yum install -y htop wget curl git unzip
+              
+              # Install AWS CLI v2
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip awscliv2.zip
+              sudo ./aws/install
+              
+              # Install kubectl
+              curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.7/2025-04-17/bin/linux/amd64/kubectl
+              chmod +x ./kubectl
+              sudo mv ./kubectl /usr/local/bin
+              
+              # Install eksctl
+              curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+              sudo mv /tmp/eksctl /usr/local/bin
+              
+              # Install Helm
+              curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+              
+              # Install SSM Agent (usually pre-installed on Amazon Linux 2)
+              yum install -y amazon-ssm-agent
+              systemctl enable amazon-ssm-agent
+              systemctl start amazon-ssm-agent
+              
+              # Create kubectl config directory
+              mkdir -p /home/ec2-user/.kube
+              chown ec2-user:ec2-user /home/ec2-user/.kube
+          fi
           
           echo "EKS Management Server ${InstanceName} is ready!" > /tmp/instance-ready.txt
+          echo "OS: $OS $VER" >> /tmp/instance-ready.txt
           echo "Tools installed: AWS CLI, kubectl, eksctl, helm" >> /tmp/instance-ready.txt
       Tags:
         - Key: Name

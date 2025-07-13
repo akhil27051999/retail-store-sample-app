@@ -61,10 +61,11 @@ EC2 instance configured for EKS cluster management
 - **Pre-installed Tools**: AWS CLI v2, kubectl, eksctl, Helm
 
 ### Instance Specifications
-- **AMI ID**: ami-0f918f7e67a3323f0 (Amazon Linux 2)
+- **AMI ID**: ami-0f918f7e67a3323f0 (supports Amazon Linux 2 & Ubuntu 24.04)
 - **Instance Types**: t3a.small, t3a.medium
 - **Storage**: 30GB gp3 EBS volume (encrypted)
 - **Network**: Elastic IP assigned
+- **OS Support**: Auto-detects and configures for Amazon Linux 2 or Ubuntu 24.04
 
 ### EKS Management Parameters
 | Parameter | Type | Default | Description |
@@ -151,7 +152,39 @@ aws ssm start-session --target <INSTANCE_ID>
 
 #### Method 2: SSH Access
 ```bash
+# For Amazon Linux 2
 ssh -i your-key.pem ec2-user@<ELASTIC_IP>
+
+# For Ubuntu 24.04
+ssh -i your-key.pem ubuntu@<ELASTIC_IP>
+```
+
+### Manual kubectl Installation (Ubuntu 24.04)
+
+If you need to manually install kubectl on Ubuntu 24.04:
+
+```bash
+# Check if kubectl is already installed
+kubectl version --client
+
+# Download kubectl binary (Kubernetes 1.31)
+curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.7/2025-04-17/bin/linux/amd64/kubectl
+
+# (Optional) Verify checksum
+curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.7/2025-04-17/bin/linux/amd64/kubectl.sha256
+sha256sum -c kubectl.sha256
+
+# Make executable and install
+chmod +x ./kubectl
+mkdir -p $HOME/bin && cp ./kubectl $HOME/bin/kubectl
+sudo cp ./kubectl /usr/local/bin/kubectl
+
+# Add to PATH
+echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify installation
+kubectl version --client
 ```
 
 ### Create EKS Cluster
@@ -162,7 +195,7 @@ aws --version && kubectl version --client && eksctl version
 # Create EKS cluster in the VPC
 eksctl create cluster \
   --name retail-eks-cluster \
-  --version 1.28 \
+  --version 1.31 \
   --region us-west-2 \
   --vpc-private-subnets=subnet-app1,subnet-app2 \
   --vpc-public-subnets=subnet-web1,subnet-web2 \
