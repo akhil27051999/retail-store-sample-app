@@ -4,8 +4,38 @@ Description: 'VPC with 6 subnets - 2 Web (Public), 2 App (Private), 2 Data (Priv
 Parameters:
   VpcCidr:
     Type: String
-    Default: '10.0.0.0/16'
+    Default: '192.168.0.0/16'
     Description: CIDR block for VPC
+  
+  WebSubnet1Cidr:
+    Type: String
+    Default: '192.168.1.0/24'
+    Description: CIDR block for Web Subnet 1
+  
+  WebSubnet2Cidr:
+    Type: String
+    Default: '192.168.2.0/24'
+    Description: CIDR block for Web Subnet 2
+  
+  AppSubnet1Cidr:
+    Type: String
+    Default: '192.168.3.0/24'
+    Description: CIDR block for App Subnet 1
+  
+  AppSubnet2Cidr:
+    Type: String
+    Default: '192.168.4.0/24'
+    Description: CIDR block for App Subnet 2
+  
+  DataSubnet1Cidr:
+    Type: String
+    Default: '192.168.5.0/24'
+    Description: CIDR block for Data Subnet 1
+  
+  DataSubnet2Cidr:
+    Type: String
+    Default: '192.168.6.0/24'
+    Description: CIDR block for Data Subnet 2
 
 Resources:
   # VPC
@@ -38,7 +68,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.1.0/24'
+      CidrBlock: !Ref WebSubnet1Cidr
       AvailabilityZone: !Select [0, !GetAZs '']
       MapPublicIpOnLaunch: true
       Tags:
@@ -49,7 +79,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.2.0/24'
+      CidrBlock: !Ref WebSubnet2Cidr
       AvailabilityZone: !Select [1, !GetAZs '']
       MapPublicIpOnLaunch: true
       Tags:
@@ -61,7 +91,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.3.0/24'
+      CidrBlock: !Ref AppSubnet1Cidr
       AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
@@ -71,7 +101,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.4.0/24'
+      CidrBlock: !Ref AppSubnet2Cidr
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
@@ -82,7 +112,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.5.0/24'
+      CidrBlock: !Ref DataSubnet1Cidr
       AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
@@ -92,7 +122,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.6.0/24'
+      CidrBlock: !Ref DataSubnet2Cidr
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name

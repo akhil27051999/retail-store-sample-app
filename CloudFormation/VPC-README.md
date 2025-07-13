@@ -6,7 +6,7 @@ This CloudFormation template creates a multi-tier VPC architecture for the retai
 ## Architecture Details
 
 ### VPC Configuration
-- **CIDR Block**: 10.0.0.0/16
+- **CIDR Block**: 192.168.0.0/16 (default)
 - **DNS Support**: Enabled
 - **DNS Hostnames**: Enabled
 
@@ -14,12 +14,12 @@ This CloudFormation template creates a multi-tier VPC architecture for the retai
 
 | Tier | Subnet Name | CIDR Block | Availability Zone | Type |
 |------|-------------|------------|-------------------|------|
-| Web  | Web-Subnet-1 | 10.0.1.0/24 | AZ-1 | Public |
-| Web  | Web-Subnet-2 | 10.0.2.0/24 | AZ-2 | Public |
-| App  | App-Subnet-1 | 10.0.3.0/24 | AZ-1 | Private |
-| App  | App-Subnet-2 | 10.0.4.0/24 | AZ-2 | Private |
-| Data | Data-Subnet-1 | 10.0.5.0/24 | AZ-1 | Private |
-| Data | Data-Subnet-2 | 10.0.6.0/24 | AZ-2 | Private |
+| Web  | Web-Subnet-1 | 192.168.1.0/24 | AZ-1 | Public |
+| Web  | Web-Subnet-2 | 192.168.2.0/24 | AZ-2 | Public |
+| App  | App-Subnet-1 | 192.168.3.0/24 | AZ-1 | Private |
+| App  | App-Subnet-2 | 192.168.4.0/24 | AZ-2 | Private |
+| Data | Data-Subnet-1 | 192.168.5.0/24 | AZ-1 | Private |
+| Data | Data-Subnet-2 | 192.168.6.0/24 | AZ-2 | Private |
 
 ### Network Components
 
