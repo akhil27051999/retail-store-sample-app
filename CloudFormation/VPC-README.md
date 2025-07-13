@@ -37,7 +37,8 @@ This CloudFormation template creates a multi-tier VPC architecture for the retai
 | Route Table | Associated Subnets | Default Route |
 |-------------|-------------------|---------------|
 | Public-RouteTable | Web-Subnet-1, Web-Subnet-2 | Internet Gateway |
-| Private-RouteTable | App-Subnet-1, App-Subnet-2, Data-Subnet-1, Data-Subnet-2 | NAT Gateway |
+| Private-RouteTable | App-Subnet-1, App-Subnet-2 | NAT Gateway |
+| Data-RouteTable | Data-Subnet-1, Data-Subnet-2 | Local only (no internet) |
 
 ## Deployment
 
@@ -96,6 +97,7 @@ aws cloudformation create-stack \
 | DataSubnet2Cidr | 192.168.6.0/24 | CIDR block for Data Subnet 2 |
 
 ## Security Considerations
-- Private subnets have no direct internet access
-- NAT Gateway provides secure outbound connectivity
+- Web subnets have direct internet access via Internet Gateway
+- App subnets have outbound internet access via NAT Gateway
+- Data subnets are completely isolated with no internet access (local routes only)
 - Network ACLs and Security Groups can be added as needed

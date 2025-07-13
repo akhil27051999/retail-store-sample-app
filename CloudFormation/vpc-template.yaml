@@ -161,6 +161,14 @@ Resources:
         - Key: Name
           Value: Private-RouteTable
 
+  DataRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Data-RouteTable
+
   # Routes
   PublicRoute:
     Type: AWS::EC2::Route
@@ -206,13 +214,13 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref DataSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref DataRouteTable
 
   DataSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref DataSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref DataRouteTable
 
 Outputs:
   VPCId:
