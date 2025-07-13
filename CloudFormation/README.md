@@ -61,11 +61,11 @@ EC2 instance configured for EKS cluster management
 - **Pre-installed Tools**: AWS CLI v2, kubectl, eksctl, Helm
 
 ### Instance Specifications
-- **AMI ID**: ami-0f918f7e67a3323f0 (supports Amazon Linux 2 & Ubuntu 24.04)
+- **AMI ID**: ami-0f918f7e67a3323f0 (Ubuntu 24.04)
 - **Instance Types**: t3a.small, t3a.medium
 - **Storage**: 30GB gp3 EBS volume (encrypted)
 - **Network**: Elastic IP assigned
-- **OS Support**: Auto-detects and configures for Amazon Linux 2 or Ubuntu 24.04
+- **OS**: Ubuntu 24.04 LTS
 
 ### EKS Management Parameters
 | Parameter | Type | Default | Description |
@@ -152,10 +152,6 @@ aws ssm start-session --target <INSTANCE_ID>
 
 #### Method 2: SSH Access
 ```bash
-# For Amazon Linux 2
-ssh -i your-key.pem ec2-user@<ELASTIC_IP>
-
-# For Ubuntu 24.04
 ssh -i your-key.pem ubuntu@<ELASTIC_IP>
 ```
 
