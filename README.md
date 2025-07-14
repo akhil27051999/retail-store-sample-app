@@ -127,6 +127,29 @@ To remove the application use `kubectl` again:
 kubectl delete -f https://github.com/aws-containers/retail-store-sample-app/releases/latest/download/kubernetes.yaml
 ```
 
+### Amazon EKS with eksctl
+
+Deploy the application to Amazon EKS using eksctl:
+
+```bash
+# Create EKS cluster in ap-south-1 region
+eksctl create cluster \
+  --name retail-eks-cluster \
+  --version 1.31 \
+  --region ap-south-1 \
+  --vpc-private-subnets=subnet-app1,subnet-app2 \
+  --vpc-public-subnets=subnet-web1,subnet-web2 \
+  --nodegroup-name retail-nodes \
+  --node-type t3.medium \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 4
+
+# Deploy the application
+kubectl apply -f https://github.com/aws-containers/retail-store-sample-app/releases/latest/download/kubernetes.yaml
+kubectl wait --for=condition=available deployments --all
+```
+
 ### Terraform
 
 The following options are available to deploy the application using Terraform:
