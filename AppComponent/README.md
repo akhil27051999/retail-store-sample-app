@@ -71,11 +71,13 @@ kubectl get services -n retail-data
 
 ### Step 3: Deploy Services Tier (Backend APIs)
 
+**Note:** The password `gjEcijAD7OSDnHf8` matches the base64 encoded value in kubernetes.yaml
+
 ```bash
-# Create required secrets first
+# Create required secrets first (using password from kubernetes.yaml)
 kubectl create secret generic catalog-db -n retail-services \
-  --from-literal=username=catalog_user \
-  --from-literal=password=default_password
+  --from-literal=username=catalog \
+  --from-literal=password=gjEcijAD7OSDnHf8
 
 # Deploy backend services
 kubectl apply -f k8s-manifests/services-tier/backend-services.yaml
@@ -159,10 +161,10 @@ kubectl logs -f -n retail-frontend deployment/ui
    # Check if catalog-db secret exists
    kubectl get secrets -n retail-services
    
-   # Create missing catalog-db secret
+   # Create missing catalog-db secret (using password from kubernetes.yaml)
    kubectl create secret generic catalog-db -n retail-services \
-     --from-literal=username=catalog_user \
-     --from-literal=password=default_password
+     --from-literal=username=catalog \
+     --from-literal=password=gjEcijAD7OSDnHf8
    
    # Restart the deployment
    kubectl rollout restart deployment/catalog -n retail-services
