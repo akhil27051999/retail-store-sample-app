@@ -1,0 +1,80 @@
+# Frontend Tier - UI Service
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ui
+  namespace: retail-frontend
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui
+  namespace: retail-frontend
+data:
+  RETAIL_CATALOG_ENDPOINT: http://catalog.retail-services
+  RETAIL_CART_ENDPOINT: http://carts.retail-services
+  RETAIL_CHECKOUT_ENDPOINT: http://checkout.retail-services
+  RETAIL_ORDERS_ENDPOINT: http://orders.retail-services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: retail-frontend
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/component: service
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/component: service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: retail-frontend
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/component: service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ui
+      app.kubernetes.io/component: service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ui
+        app.kubernetes.io/component: service
+    spec:
+      serviceAccountName: ui
+      containers:
+        - name: ui
+          envFrom:
+            - configMapRef:
+                name: ui
+          image: "public.ecr.aws/aws-containers/retail-store-sample-ui:1.2.1"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 256m
+              memory: 512Mi
