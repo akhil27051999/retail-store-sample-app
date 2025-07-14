@@ -64,7 +64,7 @@ spec:
                 name: catalog
             - secretRef:
                 name: catalog-db
-          image: "public.ecr.aws/aws-containers/retail-store-sample-catalog:1.2.1"
+          image: "public.ecr.aws/aws-containers/retail-store-sample-catalog:1.2.2"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
