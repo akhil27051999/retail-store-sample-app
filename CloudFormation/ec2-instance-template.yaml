@@ -68,6 +68,11 @@ Resources:
                   - iam:GetRole
                   - iam:ListRoles
                   - iam:ListInstanceProfiles
+                  - iam:ListAttachedRolePolicies
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRoleTags
+                  - iam:CreateServiceLinkedRole
                   - cloudformation:*
                   - autoscaling:*
                   - elasticloadbalancing:*
@@ -134,7 +139,13 @@ Resources:
           
           # Ubuntu 24.04 EKS Management Server Setup
           apt update -y
-          apt install -y curl wget git unzip htop awscli
+          apt install -y curl wget git unzip htop
+          
+          # Install AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+          rm -rf awscliv2.zip aws/
           
           # Install kubectl
           curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.31.7/2025-04-17/bin/linux/amd64/kubectl
