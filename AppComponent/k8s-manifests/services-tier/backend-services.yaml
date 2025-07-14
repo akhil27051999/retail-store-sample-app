@@ -64,7 +64,6 @@ spec:
                 name: catalog
             - secretRef:
                 name: catalog-db
-                namespace: retail-data
           image: "public.ecr.aws/aws-containers/retail-store-sample-catalog:1.2.1"
           imagePullPolicy: IfNotPresent
           ports:
