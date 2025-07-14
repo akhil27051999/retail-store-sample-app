@@ -188,11 +188,11 @@ kubectl version --client
 # Verify tools installation
 aws --version && kubectl version --client && eksctl version
 
-# Create EKS cluster in the VPC
+# Create EKS cluster in the VPC (ap-south-1 region)
 eksctl create cluster \
   --name retail-eks-cluster \
   --version 1.31 \
-  --region us-west-2 \
+  --region ap-south-1 \
   --vpc-private-subnets=subnet-app1,subnet-app2 \
   --vpc-public-subnets=subnet-web1,subnet-web2 \
   --nodegroup-name retail-nodes \
@@ -202,7 +202,7 @@ eksctl create cluster \
   --nodes-max 4
 
 # Configure kubectl
-aws eks update-kubeconfig --region us-west-2 --name retail-eks-cluster
+aws eks update-kubeconfig --region ap-south-1 --name retail-eks-cluster
 kubectl get nodes
 ```
 
