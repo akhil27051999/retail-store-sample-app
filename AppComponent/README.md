@@ -42,6 +42,8 @@ This guide provides instructions for deploying the retail store application usin
 
 ## Deployment Instructions
 
+**⚠️ Important: Deploy in the correct order to avoid dependency issues**
+
 ### Step 1: Create Namespaces
 
 ```bash
@@ -70,6 +72,11 @@ kubectl get services -n retail-data
 ### Step 3: Deploy Services Tier (Backend APIs)
 
 ```bash
+# Create required secrets first
+kubectl create secret generic catalog-db -n retail-services \
+  --from-literal=username=catalog_user \
+  --from-literal=password=default_password
+
 # Deploy backend services
 kubectl apply -f k8s-manifests/services-tier/backend-services.yaml
 
@@ -147,13 +154,39 @@ kubectl logs -f -n retail-frontend deployment/ui
 
 ### Common Issues
 
-1. **Pods stuck in Pending state**
+1. **CreateContainerConfigError (Missing Secrets)**
+   ```bash
+   # Check if catalog-db secret exists
+   kubectl get secrets -n retail-services
+   
+   # Create missing catalog-db secret
+   kubectl create secret generic catalog-db -n retail-services \
+     --from-literal=username=catalog_user \
+     --from-literal=password=default_password
+   
+   # Restart the deployment
+   kubectl rollout restart deployment/catalog -n retail-services
+   ```
+
+2. **CrashLoopBackOff (Application Crashes)**
+   ```bash
+   # Check application logs
+   kubectl logs <pod-name> -n retail-services
+   
+   # Check if data tier is running
+   kubectl get pods -n retail-data
+   
+   # Ensure databases are deployed first
+   kubectl apply -f k8s-manifests/data-tier/databases.yaml
+   ```
+
+3. **Pods stuck in Pending state**
    ```bash
    kubectl describe pod <pod-name> -n <namespace>
    # Check for resource constraints or node selector issues
    ```
 
-2. **Service connectivity issues**
+4. **Service connectivity issues**
    ```bash
    # Check service endpoints
    kubectl get endpoints -n retail-services
@@ -162,7 +195,7 @@ kubectl logs -f -n retail-frontend deployment/ui
    kubectl run test-pod --image=busybox -it --rm -- nslookup catalog.retail-services
    ```
 
-3. **Database connection failures**
+5. **Database connection failures**
    ```bash
    # Check database pods
    kubectl logs -n retail-data statefulset/catalog-mysql
