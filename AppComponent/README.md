@@ -34,6 +34,18 @@ This guide provides instructions for deploying the retail store application usin
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Deployment Comparison
+
+| Feature | kubernetesv02.yaml (ALB) | Namespace-based |
+|---------|---------------------------|------------------|
+| **Deployment** | Single command | Multi-step |
+| **Load Balancer** | Modern ALB | Classic LB |
+| **Routing** | Path-based | Basic |
+| **SSL** | Integrated | Manual |
+| **Cost** | Lower | Higher |
+| **Services** | All included | Partial |
+| **Production Ready** | ✅ Yes | ⚠️ Partial |
+
 ## Prerequisites
 
 - EKS cluster running in ap-south-1 region
@@ -43,6 +55,156 @@ This guide provides instructions for deploying the retail store application usin
 ## Deployment Instructions
 
 **⚠️ Important: Deploy in the correct order to avoid dependency issues**
+
+### Choose Your Deployment Method
+
+**Option A: Complete Application (All Services) - kubernetesv02.yaml**
+- ✅ **Recommended for production**
+- ✅ **Modern ALB implementation**
+- ✅ **All microservices included**
+- ✅ **Comprehensive documentation**
+
+**Option B: Namespace-Based Deployment (Modular)**
+- ✅ **Good for learning/development**
+- ✅ **Step-by-step deployment**
+- ✅ **Easy troubleshooting**
+
+---
+
+## 🚀 OPTION A: Complete Application Deployment (Recommended)
+
+### Prerequisites for ALB Deployment
+```bash
+# 1. Install AWS Load Balancer Controller
+kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
+
+# 2. Add EKS Helm repository
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+# 3. Install AWS Load Balancer Controller
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=retail-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+
+# 4. Verify installation
+kubectl get deployment -n kube-system aws-load-balancer-controller
+```
+
+### Single Command Deployment
+```bash
+# Deploy entire application with modern ALB
+kubectl apply -f kubernetesv02.yaml
+
+# Wait for all components to be ready (5-10 minutes)
+kubectl wait --for=condition=available deployment --all --timeout=600s
+
+# Check deployment status
+kubectl get pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+```
+
+### Access Your Application
+```bash
+# Get ALB URL (may take 2-3 minutes to provision)
+kubectl get ingress retail-store-alb
+
+# Get the ALB hostname
+export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🌐 Application URL: http://$ALB_URL"
+
+# Test the application
+curl -I http://$ALB_URL
+```
+
+### ALB Features Available
+- **Main App**: `http://your-alb-url/`
+- **Catalog API**: `http://your-alb-url/api/catalog`
+- **Cart API**: `http://your-alb-url/api/carts`
+- **Orders API**: `http://your-alb-url/api/orders`
+- **Checkout API**: `http://your-alb-url/api/checkout`
+- **SSL Redirect**: Automatic HTTPS redirect (if certificate configured)
+- **Health Checks**: Advanced ALB health monitoring
+
+---
+
+## 📚 OPTION B: Namespace-Based Deployment (Step-by-Step)
+
+### Choose Your Deployment Method
+
+**Option A: Complete Application (All Services) - kubernetesv02.yaml**
+- ✅ **Recommended for production**
+- ✅ **Modern ALB implementation**
+- ✅ **All microservices included**
+- ✅ **Comprehensive documentation**
+
+**Option B: Namespace-Based Deployment (Modular)**
+- ✅ **Good for learning/development**
+- ✅ **Step-by-step deployment**
+- ✅ **Easy troubleshooting**
+
+---
+
+## 🚀 OPTION A: Complete Application Deployment (Recommended)
+
+### Prerequisites for ALB Deployment
+```bash
+# 1. Install AWS Load Balancer Controller
+kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
+
+# 2. Add EKS Helm repository
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+# 3. Install AWS Load Balancer Controller
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=retail-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+
+# 4. Verify installation
+kubectl get deployment -n kube-system aws-load-balancer-controller
+```
+
+### Single Command Deployment
+```bash
+# Deploy entire application with modern ALB
+kubectl apply -f kubernetesv02.yaml
+
+# Wait for all components to be ready (5-10 minutes)
+kubectl wait --for=condition=available deployment --all --timeout=600s
+
+# Check deployment status
+kubectl get pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+```
+
+### Access Your Application
+```bash
+# Get ALB URL (may take 2-3 minutes to provision)
+kubectl get ingress retail-store-alb
+
+# Get the ALB hostname
+export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🌐 Application URL: http://$ALB_URL"
+
+# Test the application
+curl -I http://$ALB_URL
+```
+
+### ALB Features Available
+- **Main App**: `http://your-alb-url/`
+- **Catalog API**: `http://your-alb-url/api/catalog`
+- **Cart API**: `http://your-alb-url/api/carts`
+- **Orders API**: `http://your-alb-url/api/orders`
+- **Checkout API**: `http://your-alb-url/api/checkout`
+- **SSL Redirect**: Automatic HTTPS redirect (if certificate configured)
+- **Health Checks**: Advanced ALB health monitoring
+
+---
+
+## 📚 OPTION B: Namespace-Based Deployment (Step-by-Step)
 
 ### Step 1: Create Namespaces
 
@@ -251,9 +413,83 @@ kubectl get pods --all-namespaces | grep retail
 4. **RBAC**: Configure role-based access
 5. **Ingress**: Replace LoadBalancer with Ingress controller
 
+## 📊 Monitoring and Observability
+
+### Built-in Monitoring Features
+```bash
+# Check all application metrics
+kubectl top pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+
+# View Prometheus metrics (if enabled)
+kubectl port-forward svc/catalog 8080:80
+curl http://localhost:8080/metrics
+
+# Check ALB health
+kubectl describe ingress retail-store-alb
+```
+
+### Application Health Checks
+```bash
+# Test all service health endpoints
+kubectl exec -it deployment/ui -- curl http://catalog/health
+kubectl exec -it deployment/ui -- curl http://carts/actuator/health/readiness
+kubectl exec -it deployment/ui -- curl http://orders/actuator/health/readiness
+kubectl exec -it deployment/ui -- curl http://checkout/health
+```
+
+## 🔒 Security Features
+
+### Security Highlights in kubernetesv02.yaml
+- **Non-root containers**: All services run as user ID 1000
+- **Read-only filesystems**: Prevents runtime modifications
+- **Dropped capabilities**: Minimal Linux capabilities
+- **Security contexts**: Comprehensive security policies
+- **Secret management**: Encrypted credential storage
+
+### Network Security
+```bash
+# View security contexts
+kubectl get pods -o jsonpath='{.items[*].spec.securityContext}'
+
+# Check service accounts
+kubectl get serviceaccounts --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+```
+
+## 🚀 Advanced Features
+
+### Auto-scaling Configuration
+```bash
+# Enable Horizontal Pod Autoscaler
+kubectl autoscale deployment ui --cpu-percent=70 --min=1 --max=10
+kubectl autoscale deployment catalog --cpu-percent=70 --min=1 --max=5
+kubectl autoscale deployment carts --cpu-percent=70 --min=1 --max=5
+
+# Check HPA status
+kubectl get hpa
+```
+
+### SSL/TLS Configuration (Optional)
+```bash
+# Add SSL certificate to ALB (replace with your certificate ARN)
+kubectl annotate ingress retail-store-alb \
+  alb.ingress.kubernetes.io/certificate-arn=arn:aws:acm:region:account:certificate/cert-id
+
+# Enable SSL redirect
+kubectl annotate ingress retail-store-alb \
+  alb.ingress.kubernetes.io/ssl-redirect='443'
+```
+
 ## Cost Optimization
 
 - Monitor resource usage with `kubectl top`
 - Use Horizontal Pod Autoscaler (HPA) for dynamic scaling
 - Implement Vertical Pod Autoscaler (VPA) for right-sizing
 - Clean up resources after learning exercises
+
+### Cost Comparison
+| Component | Classic LB | ALB | Savings |
+|-----------|------------|-----|----------|
+| Load Balancer | $18/month | $16/month | 11% |
+| Rules | N/A | $0.008/rule | Flexible |
+| Data Processing | $0.008/GB | $0.008/GB | Same |
+| **Total (typical)** | **$25/month** | **$20/month** | **20%** |
