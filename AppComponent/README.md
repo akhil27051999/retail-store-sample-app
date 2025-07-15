@@ -94,7 +94,10 @@ aws iam create-policy \
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "AWS Account ID: $AWS_ACCOUNT_ID"
 
-# 4. Create IAM service account
+# 4. Create IAM OIDC provider for the cluster
+eksctl utils associate-iam-oidc-provider --region=ap-south-1 --cluster=retail-eks-cluster --approve
+
+# 5. Create IAM service account
 eksctl create iamserviceaccount \
     --cluster=retail-eks-cluster \
     --namespace=kube-system \
