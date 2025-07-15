@@ -1,37 +1,42 @@
-# Retail Store App - Namespace-Based Deployment Guide
+# Retail Store App - Complete Deployment Guide
 
 ## Overview
-This guide provides instructions for deploying the retail store application using a namespace-based approach with three-tier architecture separation.
+This guide provides instructions for deploying the retail store application with modern Application Load Balancer (ALB) implementation.
 
 ## Architecture
 
+### Modern ALB Architecture (kubernetesv02.yaml)
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    retail-frontend                          │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                UI Service                           │    │
-│  │  - LoadBalancer Service                             │    │
-│  │  - Web Interface                                    │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                    🌐 Application Load Balancer (ALB)                    │
+│  • Path-based routing: /, /api/catalog, /api/carts, /api/orders    │
+│  • SSL termination • Health checks • WAF integration ready        │
+└───────────────────────────────────────────────────────────────┘
                               │
-┌─────────────────────────────────────────────────────────────┐
-│                   retail-services                           │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │ Catalog Service │  │  Cart Service   │                  │
-│  │ - Product API   │  │ - Shopping Cart │                  │
-│  │ - ClusterIP     │  │ - ClusterIP     │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                        📱 Frontend Layer                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    UI Service                     │    │
+│  │  • React/Angular Frontend • ClusterIP Service      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────┘
                               │
-┌─────────────────────────────────────────────────────────────┐
-│                     retail-data                             │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │   MySQL DB      │  │  DynamoDB Local │                  │
-│  │ - Catalog Data  │  │ - Cart Data     │                  │
-│  │ - StatefulSet   │  │ - Deployment    │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                      ⚙️ Microservices Layer                      │
+│ ┌────────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐ │
+│ │  Catalog   │ │   Carts   │ │  Orders   │ │ Checkout  │ │
+│ │ (Go Lang) │ │  (Java)   │ │  (Java)   │ │ (Node.js) │ │
+│ └────────────┘ └───────────┘ └───────────┘ └───────────┘ │
+└───────────────────────────────────────────────────────────────┘
+                              │
+┌───────────────────────────────────────────────────────────────┐
+│                        💾 Data Layer                         │
+│ ┌────────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐ │
+│ │   MySQL   │ │ DynamoDB  │ │PostgreSQL│ │   Redis   │ │
+│ │ (Catalog) │ │  (Carts)  │ │ (Orders)  │ │(Checkout)│ │
+│ └────────────┘ └───────────┘ └───────────┘ └───────────┘ │
+│                     + RabbitMQ (Message Queue)                     │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ### Deployment Comparison
@@ -74,98 +79,50 @@ This guide provides instructions for deploying the retail store application usin
 ## 🚀 OPTION A: Complete Application Deployment (Recommended)
 
 ### Prerequisites for ALB Deployment
+
+#### Step 1: Configure IAM for AWS Load Balancer Controller
 ```bash
-# 1. Install AWS Load Balancer Controller
-kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
+# 1. Download IAM policy (latest version v2.13.0)
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.13.0/docs/install/iam_policy.json
 
-# 2. Add EKS Helm repository
+# 2. Create IAM policy
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json
+
+# 3. Create IAM service account (replace <AWS_ACCOUNT_ID> with your account ID)
+eksctl create iamserviceaccount \
+    --cluster=retail-eks-cluster \
+    --namespace=kube-system \
+    --name=aws-load-balancer-controller \
+    --attach-policy-arn=arn:aws:iam::<AWS_ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy \
+    --override-existing-serviceaccounts \
+    --region ap-south-1 \
+    --approve
+```
+
+#### Step 2: Install AWS Load Balancer Controller
+```bash
+# 1. Add EKS Helm repository
 helm repo add eks https://aws.github.io/eks-charts
-helm repo update
+helm repo update eks
 
-# 3. Install AWS Load Balancer Controller
+# 2. Install AWS Load Balancer Controller (latest version 1.13.0)
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName=retail-eks-cluster \
   --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --version 1.13.0
 
-# 4. Verify installation
+# 3. Verify installation
 kubectl get deployment -n kube-system aws-load-balancer-controller
 ```
 
-### Single Command Deployment
-```bash
-# Deploy entire application with modern ALB
-kubectl apply -f kubernetesv02.yaml
-
-# Wait for all components to be ready (5-10 minutes)
-kubectl wait --for=condition=available deployment --all --timeout=600s
-
-# Check deployment status
-kubectl get pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+#### Expected Output:
 ```
-
-### Access Your Application
-```bash
-# Get ALB URL (may take 2-3 minutes to provision)
-kubectl get ingress retail-store-alb
-
-# Get the ALB hostname
-export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "🌐 Application URL: http://$ALB_URL"
-
-# Test the application
-curl -I http://$ALB_URL
-```
-
-### ALB Features Available
-- **Main App**: `http://your-alb-url/`
-- **Catalog API**: `http://your-alb-url/api/catalog`
-- **Cart API**: `http://your-alb-url/api/carts`
-- **Orders API**: `http://your-alb-url/api/orders`
-- **Checkout API**: `http://your-alb-url/api/checkout`
-- **SSL Redirect**: Automatic HTTPS redirect (if certificate configured)
-- **Health Checks**: Advanced ALB health monitoring
-
----
-
-## 📚 OPTION B: Namespace-Based Deployment (Step-by-Step)
-
-### Choose Your Deployment Method
-
-**Option A: Complete Application (All Services) - kubernetesv02.yaml**
-- ✅ **Recommended for production**
-- ✅ **Modern ALB implementation**
-- ✅ **All microservices included**
-- ✅ **Comprehensive documentation**
-
-**Option B: Namespace-Based Deployment (Modular)**
-- ✅ **Good for learning/development**
-- ✅ **Step-by-step deployment**
-- ✅ **Easy troubleshooting**
-
----
-
-## 🚀 OPTION A: Complete Application Deployment (Recommended)
-
-### Prerequisites for ALB Deployment
-```bash
-# 1. Install AWS Load Balancer Controller
-kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
-
-# 2. Add EKS Helm repository
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update
-
-# 3. Install AWS Load Balancer Controller
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=retail-eks-cluster \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
-
-# 4. Verify installation
-kubectl get deployment -n kube-system aws-load-balancer-controller
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+aws-load-balancer-controller   2/2     2            2           84s
 ```
 
 ### Single Command Deployment
@@ -344,74 +301,17 @@ kubectl logs -f -n retail-frontend deployment/ui
    kubectl apply -f k8s-manifests/data-tier/databases.yaml
    ```
 
-3. **Pods stuck in Pending state**
+3. **ALB Controller Issues**
    ```bash
-   kubectl describe pod <pod-name> -n <namespace>
-   # Check for resource constraints or node selector issues
-   ```
-
-4. **Service connectivity issues**
-   ```bash
-   # Check service endpoints
-   kubectl get endpoints -n retail-services
+   # Check ALB controller status
+   kubectl get deployment -n kube-system aws-load-balancer-controller
    
-   # Test DNS resolution
-   kubectl run test-pod --image=busybox -it --rm -- nslookup catalog.retail-services
+   # Check ALB controller logs
+   kubectl logs -n kube-system deployment/aws-load-balancer-controller
+   
+   # Verify IAM service account
+   kubectl describe serviceaccount aws-load-balancer-controller -n kube-system
    ```
-
-5. **Database connection failures**
-   ```bash
-   # Check database pods
-   kubectl logs -n retail-data statefulset/catalog-mysql
-   kubectl logs -n retail-data deployment/carts-dynamodb
-   ```
-
-### Resource Monitoring
-```bash
-# Check resource usage
-kubectl top pods -n retail-data
-kubectl top pods -n retail-services
-kubectl top pods -n retail-frontend
-
-# Check node resources
-kubectl top nodes
-```
-
-## Cleanup
-
-### Remove Application
-```bash
-# Remove in reverse order
-kubectl delete -f k8s-manifests/frontend-tier/ui-service.yaml
-kubectl delete -f k8s-manifests/services-tier/backend-services.yaml
-kubectl delete -f k8s-manifests/data-tier/databases.yaml
-
-# Remove namespaces (this will delete all resources)
-kubectl delete -f k8s-manifests/namespaces/namespaces.yaml
-```
-
-### Verify Cleanup
-```bash
-kubectl get namespaces | grep retail
-kubectl get pods --all-namespaces | grep retail
-```
-
-## Benefits of Namespace-Based Approach
-
-- **Isolation**: Clear separation between tiers
-- **Security**: Network policies can be applied per namespace
-- **Resource Management**: Resource quotas per tier
-- **RBAC**: Role-based access control per namespace
-- **Monitoring**: Easier to monitor and alert per tier
-- **Scaling**: Independent scaling of each tier
-
-## Next Steps
-
-1. **Add Network Policies**: Implement network segmentation
-2. **Resource Quotas**: Set limits per namespace
-3. **Monitoring**: Deploy Prometheus/Grafana per namespace
-4. **RBAC**: Configure role-based access
-5. **Ingress**: Replace LoadBalancer with Ingress controller
 
 ## 📊 Monitoring and Observability
 
@@ -446,15 +346,6 @@ kubectl exec -it deployment/ui -- curl http://checkout/health
 - **Security contexts**: Comprehensive security policies
 - **Secret management**: Encrypted credential storage
 
-### Network Security
-```bash
-# View security contexts
-kubectl get pods -o jsonpath='{.items[*].spec.securityContext}'
-
-# Check service accounts
-kubectl get serviceaccounts --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
-```
-
 ## 🚀 Advanced Features
 
 ### Auto-scaling Configuration
@@ -481,11 +372,6 @@ kubectl annotate ingress retail-store-alb \
 
 ## Cost Optimization
 
-- Monitor resource usage with `kubectl top`
-- Use Horizontal Pod Autoscaler (HPA) for dynamic scaling
-- Implement Vertical Pod Autoscaler (VPA) for right-sizing
-- Clean up resources after learning exercises
-
 ### Cost Comparison
 | Component | Classic LB | ALB | Savings |
 |-----------|------------|-----|----------|
@@ -493,3 +379,26 @@ kubectl annotate ingress retail-store-alb \
 | Rules | N/A | $0.008/rule | Flexible |
 | Data Processing | $0.008/GB | $0.008/GB | Same |
 | **Total (typical)** | **$25/month** | **$20/month** | **20%** |
+
+## Cleanup
+
+### Remove Application
+```bash
+# Remove ALB deployment
+kubectl delete -f kubernetesv02.yaml
+
+# Or remove namespace-based deployment
+kubectl delete -f k8s-manifests/frontend-tier/ui-service.yaml
+kubectl delete -f k8s-manifests/services-tier/backend-services.yaml
+kubectl delete -f k8s-manifests/data-tier/databases.yaml
+kubectl delete -f k8s-manifests/namespaces/namespaces.yaml
+```
+
+## Benefits of Modern ALB Approach
+
+- **Cost Effective**: 20% savings over Classic Load Balancer
+- **Advanced Routing**: Path-based routing for microservices
+- **SSL Integration**: Seamless certificate management
+- **Better Performance**: HTTP/2 and WebSocket support
+- **Security**: WAF integration ready
+- **Monitoring**: Enhanced health checks and metrics
