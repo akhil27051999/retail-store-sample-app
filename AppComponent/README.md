@@ -144,6 +144,26 @@ kubectl wait --for=condition=available deployment --all --timeout=600s
 kubectl get pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
 ```
 
+### If SSL Certificate Error Occurs
+If you encounter SSL certificate errors during ALB creation, follow these steps:
+
+```bash
+# 1. Pull the latest updates (HTTP-only configuration)
+git pull origin main
+
+# 2. Delete the current deployment
+kubectl delete -f kubernetesv02.yaml
+
+# 3. Wait for all resources to be deleted (30-60 seconds)
+kubectl get pods --all-namespaces | grep -E "catalog|carts|orders|checkout|ui"
+
+# 4. Redeploy with updated manifest
+kubectl apply -f kubernetesv02.yaml
+
+# 5. Monitor deployment
+kubectl get pods --watch
+```
+
 ### Access Your Application
 ```bash
 # Get ALB URL (may take 2-3 minutes to provision)
@@ -318,6 +338,17 @@ kubectl logs -f -n retail-frontend deployment/ui
    
    # Verify IAM service account
    kubectl describe serviceaccount aws-load-balancer-controller -n kube-system
+   ```
+
+4. **SSL Certificate Error (ValidationError: A certificate must be specified)**
+   ```bash
+   # Check Ingress events for SSL errors
+   kubectl describe ingress retail-store-alb
+   
+   # If SSL certificate errors occur, redeploy with HTTP-only:
+   git pull origin main
+   kubectl delete -f kubernetesv02.yaml
+   kubectl apply -f kubernetesv02.yaml
    ```
 
 ## 📊 Monitoring and Observability
