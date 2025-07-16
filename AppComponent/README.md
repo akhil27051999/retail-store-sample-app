@@ -910,6 +910,336 @@ echo "🎉 Karpenter cleanup completed!"
 - Terminates unused nodes quickly
 - Reduces idle resource costs
 
+## 📊 Monitoring & Management Tools Setup
+
+### Overview
+Deploy comprehensive monitoring and management tools for your EKS cluster:
+- **Prometheus & Grafana**: Metrics collection and visualization
+- **ArgoCD**: GitOps continuous deployment
+- **Kubernetes Dashboard**: Web-based cluster management UI
+
+---
+
+## 🔍 Prometheus & Grafana Monitoring Stack
+
+### What is Prometheus & Grafana?
+- **Prometheus**: Time-series database for metrics collection
+- **Grafana**: Visualization and alerting platform
+- **Benefits**: Real-time monitoring, custom dashboards, alerting
+
+### Step 1: Install Prometheus & Grafana using Helm
+```bash
+# 1. Add Prometheus community Helm repository
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# 2. Create monitoring namespace
+kubectl create namespace monitoring
+
+# 3. Install kube-prometheus-stack (includes Prometheus, Grafana, AlertManager)
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+  --set grafana.adminPassword=admin123 \
+  --set grafana.service.type=LoadBalancer \
+  --set prometheus.service.type=LoadBalancer
+
+# 4. Wait for deployment
+kubectl wait --for=condition=available deployment --all -n monitoring --timeout=300s
+```
+
+### Step 2: Access Grafana Dashboard
+```bash
+# Get Grafana LoadBalancer URL
+kubectl get service prometheus-grafana -n monitoring
+
+# Get external IP/hostname
+export GRAFANA_URL=$(kubectl get service prometheus-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 Grafana URL: http://$GRAFANA_URL"
+echo "👤 Username: admin"
+echo "🔑 Password: admin123"
+
+# Port forward if LoadBalancer not available
+# kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+# Then access: http://localhost:3000
+```
+
+### Step 3: Access Prometheus
+```bash
+# Get Prometheus URL
+export PROMETHEUS_URL=$(kubectl get service prometheus-kube-prometheus-prometheus -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "📊 Prometheus URL: http://$PROMETHEUS_URL:9090"
+
+# Port forward if LoadBalancer not available
+# kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+```
+
+### Step 4: Pre-configured Dashboards
+Grafana comes with pre-built dashboards:
+- **Kubernetes Cluster Monitoring**
+- **Node Exporter Full**
+- **Kubernetes Pod Monitoring**
+- **Kubernetes Deployment Monitoring**
+
+---
+
+## 🚀 ArgoCD GitOps Setup
+
+### What is ArgoCD?
+- **GitOps**: Declarative continuous deployment
+- **Benefits**: Git-based deployments, rollbacks, multi-cluster management
+- **Integration**: Works with your existing Git repositories
+
+### Step 1: Install ArgoCD
+```bash
+# 1. Create ArgoCD namespace
+kubectl create namespace argocd
+
+# 2. Install ArgoCD
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# 3. Wait for deployment
+kubectl wait --for=condition=available deployment --all -n argocd --timeout=300s
+
+# 4. Patch ArgoCD server service to LoadBalancer
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+### Step 2: Access ArgoCD UI
+```bash
+# Get ArgoCD server URL
+export ARGOCD_URL=$(kubectl get service argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 ArgoCD URL: http://$ARGOCD_URL"
+
+# Get initial admin password
+export ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+echo "👤 Username: admin"
+echo "🔑 Password: $ARGOCD_PASSWORD"
+
+# Port forward if LoadBalancer not available
+# kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Then access: https://localhost:8080
+```
+
+### Step 3: Configure ArgoCD CLI (Optional)
+```bash
+# Install ArgoCD CLI
+curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+rm argocd-linux-amd64
+
+# Login to ArgoCD
+argocd login $ARGOCD_URL --username admin --password $ARGOCD_PASSWORD --insecure
+
+# Change admin password
+argocd account update-password --current-password $ARGOCD_PASSWORD --new-password newpassword123
+```
+
+### Step 4: Create Sample Application
+```bash
+# Create application from your Git repository
+cat <<EOF | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: retail-store-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/elngovind/retail-store-sample-app.git
+    targetRevision: main
+    path: AppComponent
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+EOF
+```
+
+---
+
+## 🖥️ Kubernetes Dashboard
+
+### What is Kubernetes Dashboard?
+- **Web UI**: Browser-based cluster management
+- **Benefits**: Visual cluster overview, resource management, troubleshooting
+- **Features**: Pod logs, resource editing, metrics visualization
+
+### Step 1: Install Kubernetes Dashboard
+```bash
+# 1. Install Kubernetes Dashboard
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+
+# 2. Create admin service account
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kubernetes-dashboard
+EOF
+
+# 3. Patch dashboard service to LoadBalancer
+kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+### Step 2: Access Kubernetes Dashboard
+```bash
+# Get Dashboard URL
+export DASHBOARD_URL=$(kubectl get service kubernetes-dashboard -n kubernetes-dashboard -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 Dashboard URL: https://$DASHBOARD_URL"
+
+# Get access token
+export DASHBOARD_TOKEN=$(kubectl -n kubernetes-dashboard create token admin-user)
+echo "🔑 Access Token:"
+echo $DASHBOARD_TOKEN
+
+# Port forward if LoadBalancer not available
+# kubectl proxy
+# Then access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+
+### Step 3: Login to Dashboard
+1. Open the Dashboard URL in your browser
+2. Select **Token** authentication method
+3. Paste the access token from above
+4. Click **Sign In**
+
+---
+
+## 📋 Monitoring Your Retail Store Application
+
+### Application Metrics Available
+Your retail store application (kubernetesv02.yaml) includes Prometheus annotations:
+```yaml
+prometheus.io/path: /actuator/prometheus
+prometheus.io/port: "8080"
+prometheus.io/scrape: "true"
+```
+
+### Key Metrics to Monitor
+```bash
+# Check if metrics are being scraped
+kubectl get pods -l prometheus.io/scrape=true
+
+# View Prometheus targets
+# Go to Prometheus UI -> Status -> Targets
+# Look for your application endpoints
+```
+
+### Custom Grafana Dashboard for Retail Store
+```bash
+# Create custom dashboard JSON (save as retail-dashboard.json)
+cat <<EOF > retail-dashboard.json
+{
+  "dashboard": {
+    "title": "Retail Store Application Metrics",
+    "panels": [
+      {
+        "title": "HTTP Requests per Second",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{service}}"
+          }
+        ]
+      },
+      {
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+# Import this dashboard in Grafana UI: + -> Import -> Upload JSON file
+```
+
+---
+
+## 🔧 Management Commands
+
+### Monitor All Services
+```bash
+# Check all monitoring components
+kubectl get pods -n monitoring
+kubectl get pods -n argocd
+kubectl get pods -n kubernetes-dashboard
+
+# Check service endpoints
+kubectl get services -n monitoring
+kubectl get services -n argocd
+kubectl get services -n kubernetes-dashboard
+```
+
+### Troubleshooting
+```bash
+# Check Prometheus targets
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+# Visit: http://localhost:9090/targets
+
+# Check Grafana datasources
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+# Visit: http://localhost:3000/datasources
+
+# Check ArgoCD applications
+kubectl get applications -n argocd
+```
+
+### Cleanup Commands
+```bash
+# Remove monitoring stack
+helm uninstall prometheus -n monitoring
+kubectl delete namespace monitoring
+
+# Remove ArgoCD
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl delete namespace argocd
+
+# Remove Kubernetes Dashboard
+kubectl delete -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+```
+
+---
+
+## 🎯 Access Summary
+
+After deployment, you'll have access to:
+
+| Tool | URL | Username | Password |
+|------|-----|----------|----------|
+| **Grafana** | `http://<grafana-lb>` | admin | admin123 |
+| **Prometheus** | `http://<prometheus-lb>:9090` | - | - |
+| **ArgoCD** | `http://<argocd-lb>` | admin | `<generated>` |
+| **K8s Dashboard** | `https://<dashboard-lb>` | Token | `<generated>` |
+| **Retail Store** | `http://<alb-url>` | - | - |
+
 ## Benefits of Modern ALB Approach
 
 - **Cost Effective**: 20% savings over Classic Load Balancer
