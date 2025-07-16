@@ -117,6 +117,20 @@ spec:
           value: "/grafana"
         - name: GF_SERVER_SERVE_FROM_SUB_PATH
           value: "true"
+        livenessProbe:
+          httpGet:
+            path: /grafana/api/health
+            port: 3000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /grafana/api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -163,6 +177,20 @@ spec:
           value: "-Djenkins.install.runSetupWizard=false"
         - name: JENKINS_OPTS
           value: "--prefix=/jenkins"
+        livenessProbe:
+          httpGet:
+            path: /jenkins/login
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /jenkins/login
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
         volumeMounts:
         - name: jenkins-home
           mountPath: /var/jenkins_home
@@ -227,6 +255,20 @@ spec:
           value: "true"
         - name: ARGOCD_SERVER_BASEHREF
           value: "/argocd"
+        livenessProbe:
+          httpGet:
+            path: /argocd/healthz
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /argocd/healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -503,6 +545,11 @@ metadata:
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/healthcheck-path: /prometheus
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '5'
+    alb.ingress.kubernetes.io/success-codes: '200,302,404'
     alb.ingress.kubernetes.io/group.name: observability-stack
     alb.ingress.kubernetes.io/tags: Environment=observability,Cluster=retail-eks-cluster,Region=ap-south-1
 spec:
