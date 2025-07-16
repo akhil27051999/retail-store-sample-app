@@ -949,59 +949,128 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 kubectl wait --for=condition=available deployment --all -n monitoring --timeout=300s
 ```
 
-### Step 2: Expose Grafana via Existing ALB
+### Step 2: Expose All Services via Single NLB (Cost-Effective)
 ```bash
-# Create Ingress to expose Grafana through existing ALB
+# Create a single multi-port NLB service for all monitoring tools
 cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: v1
+kind: Service
 metadata:
-  name: monitoring-ingress
+  name: monitoring-nlb
   namespace: monitoring
   annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
 spec:
-  rules:
-    - http:
-        paths:
-          - path: /grafana
-            pathType: Prefix
-            backend:
-              service:
-                name: prometheus-grafana
-                port:
-                  number: 80
-          - path: /prometheus
-            pathType: Prefix
-            backend:
-              service:
-                name: prometheus-kube-prometheus-prometheus
-                port:
-                  number: 9090
+  type: LoadBalancer
+  ports:
+    - name: grafana
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+    - name: argocd
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: dashboard
+      port: 8443
+      targetPort: 8443
+      protocol: TCP
+  selector:
+    app: monitoring-proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-proxy
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring-proxy
+  template:
+    metadata:
+      labels:
+        app: monitoring-proxy
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 3000
+        - containerPort: 9090
+        - containerPort: 8080
+        - containerPort: 8443
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: monitoring-proxy-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-proxy-config
+  namespace: monitoring
+data:
+  default.conf: |
+    # Grafana proxy
+    server {
+        listen 3000;
+        location / {
+            proxy_pass http://prometheus-grafana.monitoring.svc.cluster.local:80;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+        }
+    }
+    # Prometheus proxy
+    server {
+        listen 9090;
+        location / {
+            proxy_pass http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+        }
+    }
+    # ArgoCD proxy
+    server {
+        listen 8080;
+        location / {
+            proxy_pass http://argocd-server.argocd.svc.cluster.local:80;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+        }
+    }
+    # Dashboard proxy
+    server {
+        listen 8443;
+        location / {
+            proxy_pass https://kubernetes-dashboard.kubernetes-dashboard.svc.cluster.local:443;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_ssl_verify off;
+        }
+    }
 EOF
 
-# Get ALB URL (same as your retail store)
-export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "🎯 Grafana URL: http://$ALB_URL/grafana"
-echo "📊 Prometheus URL: http://$ALB_URL/prometheus"
-echo "👤 Username: admin"
-echo "🔑 Password: admin123"
-```
+# Wait for NLB to be ready
+kubectl get svc monitoring-nlb -n monitoring --watch
 
-### Step 3: Configure Grafana for Subpath
-```bash
-# Update Grafana configuration to work with subpath
-helm upgrade prometheus prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --reuse-values \
-  --set grafana.grafana\.ini.server.root_url="http://localhost:3000/grafana" \
-  --set grafana.grafana\.ini.server.serve_from_sub_path=true
-
-# Wait for Grafana to restart
-kubectl rollout status deployment/prometheus-grafana -n monitoring
+# Get NLB URL
+export NLB_URL=$(kubectl get svc monitoring-nlb -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 Grafana URL: http://$NLB_URL:3000"
+echo "📊 Prometheus URL: http://$NLB_URL:9090"
+echo "🚀 ArgoCD URL: http://$NLB_URL:8080"
+echo "🖥️ Dashboard URL: https://$NLB_URL:8443"
+echo "👤 Grafana Username: admin"
+echo "🔑 Grafana Password: admin123"
 ```
 
 ### Step 4: Pre-configured Dashboards
@@ -1034,38 +1103,13 @@ kubectl wait --for=condition=available deployment --all -n argocd --timeout=300s
 # 4. ArgoCD server will use ClusterIP (default) for Ingress integration
 ```
 
-### Step 2: Expose ArgoCD via Existing ALB
+### Step 2: ArgoCD Access via NLB
 ```bash
-# Create Ingress to expose ArgoCD through existing ALB
-cat <<EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: argocd-ingress
-  namespace: argocd
-  annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
-    alb.ingress.kubernetes.io/backend-protocol: HTTP
-spec:
-  rules:
-    - http:
-        paths:
-          - path: /argocd
-            pathType: Prefix
-            backend:
-              service:
-                name: argocd-server
-                port:
-                  number: 80
-EOF
-
-# Get ALB URL and ArgoCD password
-export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+# ArgoCD is already accessible via the monitoring NLB created above
+# Get ArgoCD password
 export ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
-echo "🎯 ArgoCD URL: http://$ALB_URL/argocd"
+export NLB_URL=$(kubectl get svc monitoring-nlb -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 ArgoCD URL: http://$NLB_URL:8080"
 echo "👤 Username: admin"
 echo "🔑 Password: $ARGOCD_PASSWORD"
 ```
@@ -1074,6 +1118,70 @@ echo "🔑 Password: $ARGOCD_PASSWORD"
 ```bash
 # Install ArgoCD CLI
 curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+rm argocd-linux-amd64
+
+# Login to ArgoCD
+export NLB_URL=$(kubectl get svc monitoring-nlb -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+argocd login $NLB_URL:8080 --username admin --password $ARGOCD_PASSWORD --insecure
+```
+
+---
+
+## 🖥️ Kubernetes Dashboard
+
+### Step 1: Install Kubernetes Dashboard
+```bash
+# Install Kubernetes Dashboard
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+
+# Create admin service account
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kubernetes-dashboard
+EOF
+```
+
+### Step 2: Access Dashboard via NLB
+```bash
+# Get Dashboard access token
+export DASHBOARD_TOKEN=$(kubectl -n kubernetes-dashboard create token admin-user)
+export NLB_URL=$(kubectl get svc monitoring-nlb -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 Dashboard URL: https://$NLB_URL:8443"
+echo "🔑 Access Token: $DASHBOARD_TOKEN"
+```
+
+---
+
+## 🎯 Access Summary
+
+All tools accessible via **single NLB** (cost-effective!):
+
+| Tool | URL | Username | Password |
+|------|-----|----------|----------|
+| **Retail Store** | `http://<alb-url>/` | - | - |
+| **Grafana** | `http://<nlb-url>:3000` | admin | admin123 |
+| **Prometheus** | `http://<nlb-url>:9090` | - | - |
+| **ArgoCD** | `http://<nlb-url>:8080` | admin | `<generated>` |
+| **Dashboard** | `https://<nlb-url>:8443` | Token | `<generated>` |
+
+**✅ Cost**: 1 ALB + 1 NLB = ~$32/month (vs $90/month with multiple LoadBalancers)releases/latest/download/argocd-linux-amd64
 sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
 rm argocd-linux-amd64
 
