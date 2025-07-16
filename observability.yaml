@@ -319,19 +319,22 @@ spec:
         - --enable-insecure-login
         - --enable-skip-login
         - --disable-settings-authorizer
-        - --namespace=observability
         livenessProbe:
           httpGet:
             path: /
             port: 9090
-          initialDelaySeconds: 30
-          timeoutSeconds: 30
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /
             port: 9090
-          initialDelaySeconds: 10
-          timeoutSeconds: 30
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
         volumeMounts:
         - name: tmp-volume
           mountPath: /tmp
