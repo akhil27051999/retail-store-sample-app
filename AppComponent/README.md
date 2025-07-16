@@ -257,3 +257,55 @@ kubectl get pods --all-namespaces | grep retail
 - Use Horizontal Pod Autoscaler (HPA) for dynamic scaling
 - Implement Vertical Pod Autoscaler (VPA) for right-sizing
 - Clean up resources after learning exercises
+
+## Observability Tier (Optional)
+
+### Deploy Observability Stack with Single ALB
+
+This optional step deploys Prometheus, Grafana, ArgoCD, and Kubernetes Dashboard behind a single Application Load Balancer (ALB) for centralized observability.
+
+**Prerequisites:**
+- AWS Load Balancer Controller installed in your EKS cluster
+- Proper IAM permissions for ALB creation
+
+```bash
+# Deploy observability stack
+kubectl apply -f k8s-manifests/observability-tier/observability-alb.yaml
+
+# Wait for deployments to be ready
+kubectl wait --for=condition=available deployment/prometheus -n retail-observability --timeout=300s
+kubectl wait --for=condition=available deployment/grafana -n retail-observability --timeout=300s
+kubectl wait --for=condition=available deployment/argocd-server -n retail-observability --timeout=300s
+kubectl wait --for=condition=available deployment/kubernetes-dashboard -n retail-observability --timeout=300s
+
+# Get ALB URL
+kubectl get ingress observability-alb -n retail-observability
+```
+
+### Access Observability Tools
+
+Once deployed, access the tools via the ALB URL:
+
+```bash
+# Get the ALB hostname
+export OBS_URL=$(kubectl get ingress observability-alb -n retail-observability -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+echo "Prometheus: http://$OBS_URL/prometheus"
+echo "Grafana: http://$OBS_URL/grafana (admin/admin123)"
+echo "ArgoCD: http://$OBS_URL/argocd"
+echo "Kubernetes Dashboard: http://$OBS_URL/dashboard"
+```
+
+### Observability Features
+
+- **Prometheus**: Metrics collection and monitoring
+- **Grafana**: Visualization dashboards (default login: admin/admin123)
+- **ArgoCD**: GitOps continuous deployment
+- **Kubernetes Dashboard**: Cluster management UI
+
+### Cleanup Observability Stack
+
+```bash
+# Remove observability stack
+kubectl delete -f k8s-manifests/observability-tier/observability-alb.yaml
+```
