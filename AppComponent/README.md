@@ -783,6 +783,81 @@ kubectl scale deployment checkout --replicas=1
 # Karpenter will automatically terminate unused nodes
 ```
 
+### Cleanup Karpenter (Complete Removal)
+```bash
+# 1. Delete Karpenter workloads first
+kubectl delete deployment cpu-stress-test --ignore-not-found
+kubectl delete deployment memory-stress-test --ignore-not-found
+
+# 2. Delete Karpenter resources
+kubectl delete provisioner retail-provisioner --ignore-not-found
+kubectl delete awsnodepool retail-nodepool --ignore-not-found
+
+# 3. Uninstall Karpenter Helm chart
+helm uninstall karpenter -n karpenter
+
+# 4. Delete Karpenter namespace
+kubectl delete namespace karpenter --ignore-not-found
+
+# 5. Delete IAM service account
+eksctl delete iamserviceaccount \
+  --cluster=${CLUSTER_NAME} \
+  --namespace=karpenter \
+  --name=karpenter \
+  --region=${AWS_DEFAULT_REGION}
+
+# 6. Remove instance profile
+aws iam remove-role-from-instance-profile \
+  --instance-profile-name KarpenterNodeInstanceProfile \
+  --role-name KarpenterNodeInstanceProfile
+
+aws iam delete-instance-profile \
+  --instance-profile-name KarpenterNodeInstanceProfile
+
+# 7. Detach policies from role
+aws iam detach-role-policy \
+  --role-name KarpenterNodeInstanceProfile \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+
+aws iam detach-role-policy \
+  --role-name KarpenterNodeInstanceProfile \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+aws iam detach-role-policy \
+  --role-name KarpenterNodeInstanceProfile \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+aws iam detach-role-policy \
+  --role-name KarpenterNodeInstanceProfile \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+# 8. Delete IAM role
+aws iam delete-role --role-name KarpenterNodeInstanceProfile
+
+# 9. Remove tags from subnets and security groups
+VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+SUBNET_IDS=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.subnetIds' --output text)
+
+# Remove subnet tags
+for subnet in $SUBNET_IDS; do
+  aws ec2 delete-tags --resources $subnet --tags Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}
+done
+
+# Remove security group tags
+CLUSTER_SG=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
+aws ec2 delete-tags --resources $CLUSTER_SG --tags Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}
+
+# 10. Verify cleanup
+echo "Verifying Karpenter cleanup..."
+kubectl get provisioner --ignore-not-found
+kubectl get awsnodepool --ignore-not-found
+kubectl get nodes -l karpenter.sh/provisioner --ignore-not-found
+aws iam get-role --role-name KarpenterNodeInstanceProfile 2>/dev/null || echo "✅ KarpenterNodeInstanceProfile role deleted"
+aws iam get-instance-profile --instance-profile-name KarpenterNodeInstanceProfile 2>/dev/null || echo "✅ KarpenterNodeInstanceProfile instance profile deleted"
+
+echo "🎉 Karpenter cleanup completed!"
+```
+
 ### Karpenter Cost Optimization Features
 
 **Spot Instance Support:**
