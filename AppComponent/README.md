@@ -435,13 +435,21 @@ kubectl delete -f k8s-manifests/namespaces/namespaces.yaml
 ## 🚀 Karpenter Auto-Scaling Setup
 
 ### What is Karpenter?
-**Karpenter** is a Kubernetes cluster autoscaler that automatically provisions right-sized compute resources in response to changing application load. Unlike traditional cluster autoscalers, Karpenter:
+**Karpenter** is an open-source Kubernetes node lifecycle management project that automatically provisions and deprovisions nodes based on pod scheduling requirements. Unlike traditional cluster autoscalers, Karpenter:
 
-- **Provisions nodes in seconds** (not minutes)
-- **Right-sizes instances** based on actual pod requirements
-- **Supports mixed instance types** and spot instances
-- **Reduces costs** by up to 60% with intelligent instance selection
-- **Eliminates node groups** - provisions nodes directly
+- **Monitors unschedulable pods** due to resource constraints
+- **Evaluates scheduling requirements** (resources, selectors, affinities, tolerations)
+- **Provisions right-sized nodes** that meet pod requirements
+- **Removes nodes** when no longer needed
+- **Consolidates workloads** for cost optimization
+- **Supports spot instances** with interruption handling
+
+### Why Use Karpenter?
+- **Simplified Management**: No need for dozens of node groups
+- **Faster Scaling**: Provisions nodes in ~30 seconds vs minutes
+- **Cost Optimization**: Up to 60% savings with spot instances
+- **Flexible Instance Selection**: Uses diverse instance types automatically
+- **Kubernetes Native**: Closer integration with K8s APIs than ASGs
 
 ### Prerequisites for Karpenter
 ```bash
@@ -451,37 +459,75 @@ export AWS_DEFAULT_REGION=ap-south-1
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 ```
 
-### Step 1: Install Karpenter
+### Step 1: Create Karpenter IAM Resources
 ```bash
-# 1. Create Karpenter namespace
-kubectl create namespace karpenter
+# 1. Create Karpenter service account with IRSA
+eksctl create iamserviceaccount \
+  --cluster=${CLUSTER_NAME} \
+  --namespace=karpenter \
+  --name=karpenter \
+  --attach-policy-arn=arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy \
+  --attach-policy-arn=arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy \
+  --attach-policy-arn=arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly \
+  --attach-policy-arn=arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore \
+  --override-existing-serviceaccounts \
+  --region=${AWS_DEFAULT_REGION} \
+  --approve
 
-# 2. Add Karpenter Helm repository
+# 2. Create EC2 instance profile for Karpenter nodes
+aws iam create-role --role-name KarpenterNodeInstanceProfile --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ec2.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}'
+
+# 3. Attach policies to the role
+aws iam attach-role-policy --role-name KarpenterNodeInstanceProfile --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+aws iam attach-role-policy --role-name KarpenterNodeInstanceProfile --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+aws iam attach-role-policy --role-name KarpenterNodeInstanceProfile --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+aws iam attach-role-policy --role-name KarpenterNodeInstanceProfile --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+# 4. Create instance profile
+aws iam create-instance-profile --instance-profile-name KarpenterNodeInstanceProfile
+aws iam add-role-to-instance-profile --instance-profile-name KarpenterNodeInstanceProfile --role-name KarpenterNodeInstanceProfile
+```
+
+### Step 2: Install Karpenter
+```bash
+# 1. Add Karpenter Helm repository
 helm repo add karpenter https://charts.karpenter.sh/
 helm repo update
 
-# 3. Install Karpenter
+# 2. Install Karpenter (latest stable version)
 helm install karpenter karpenter/karpenter \
   --version 1.0.7 \
   --namespace karpenter \
   --create-namespace \
   --set settings.clusterName=${CLUSTER_NAME} \
-  --set settings.interruptionQueue=${CLUSTER_NAME} \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=karpenter \
   --set controller.resources.requests.cpu=1 \
   --set controller.resources.requests.memory=1Gi \
   --set controller.resources.limits.cpu=1 \
   --set controller.resources.limits.memory=1Gi
 
-# 4. Verify Karpenter installation
+# 3. Verify Karpenter installation
 kubectl get pods -n karpenter
 kubectl logs -f -n karpenter -l app.kubernetes.io/name=karpenter
 ```
 
-### Step 2: Create Karpenter NodePool
+### Step 3: Create Karpenter NodePool
 ```bash
-# Create NodePool configuration
+# Create NodePool configuration with best practices
 cat <<EOF | kubectl apply -f -
-apiVersion: karpenter.sh/v1beta1
+apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
   name: retail-nodepool
@@ -491,8 +537,9 @@ spec:
     metadata:
       labels:
         karpenter.sh/nodepool: retail-nodepool
+        billing-team: retail-team
     spec:
-      # Node requirements
+      # Node requirements - diverse instance types for better spot availability
       requirements:
         - key: kubernetes.io/arch
           operator: In
@@ -502,31 +549,45 @@ spec:
           values: ["spot", "on-demand"]
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["t3.medium", "t3.large", "t3.xlarge", "m5.large", "m5.xlarge"]
+          values: ["t3.medium", "t3.large", "t3.xlarge", "m5.large", "m5.xlarge", "c5.large", "c5.xlarge"]
+        # Exclude expensive instances not needed for retail workload
+        - key: node.kubernetes.io/instance-type
+          operator: NotIn
+          values: ["m6g.16xlarge", "r6g.16xlarge", "c6g.16xlarge"]
       # Node properties
       nodeClassRef:
         apiVersion: karpenter.k8s.aws/v1beta1
         kind: EC2NodeClass
         name: retail-nodeclass
-      # Taints for workload isolation (optional)
-      taints:
-        - key: karpenter.sh/nodepool
-          value: retail-nodepool
-          effect: NoSchedule
-  # Scaling limits
+      # Node expiration for regular updates (best practice)
+      expireAfter: 24h
+  # Scaling limits to control costs
   limits:
     cpu: 1000
     memory: 1000Gi
-  # Disruption settings
+  # Disruption settings for cost optimization
   disruption:
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: 30s
-    expireAfter: 2m
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
 EOF
 ```
 
-### Step 3: Create EC2NodeClass
+### Step 4: Create EC2NodeClass
 ```bash
+# First, tag your subnets and security groups for Karpenter discovery
+# Get cluster VPC and subnets
+VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+SUBNET_IDS=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.subnetIds' --output text)
+
+# Tag subnets for Karpenter discovery
+for subnet in $SUBNET_IDS; do
+  aws ec2 create-tags --resources $subnet --tags Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}
+done
+
+# Tag cluster security group
+CLUSTER_SG=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
+aws ec2 create-tags --resources $CLUSTER_SG --tags Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}
+
 # Create EC2NodeClass configuration
 cat <<EOF | kubectl apply -f -
 apiVersion: karpenter.k8s.aws/v1beta1
@@ -534,20 +595,21 @@ kind: EC2NodeClass
 metadata:
   name: retail-nodeclass
 spec:
-  # AMI selection
-  amiFamily: AL2
+  # AMI selection - pin to specific version for production (best practice)
+  amiSelectorTerms:
+    - alias: al2023@latest  # Use al2023@v20240807 for production
   
-  # Subnet selection (use your EKS cluster subnets)
+  # Subnet selection using discovery tags
   subnetSelectorTerms:
     - tags:
         karpenter.sh/discovery: ${CLUSTER_NAME}
   
-  # Security group selection
+  # Security group selection using discovery tags
   securityGroupSelectorTerms:
     - tags:
         karpenter.sh/discovery: ${CLUSTER_NAME}
   
-  # Instance profile
+  # Instance profile for node permissions
   role: KarpenterNodeInstanceProfile
   
   # User data for node initialization
@@ -555,7 +617,7 @@ spec:
     #!/bin/bash
     /etc/eks/bootstrap.sh ${CLUSTER_NAME}
     
-  # Instance store policy
+  # Instance store policy for better performance
   instanceStorePolicy: RAID0
   
   # Tags for created instances
@@ -563,22 +625,46 @@ spec:
     Name: Karpenter-${CLUSTER_NAME}
     Environment: Development
     ManagedBy: Karpenter
+    BillingTeam: retail-team
 EOF
 ```
 
-### Step 4: Verify Karpenter Setup
+### Step 5: Verify Karpenter Setup
 ```bash
 # Check Karpenter resources
 kubectl get nodepool
 kubectl get ec2nodeclass
 kubectl get nodes -l karpenter.sh/nodepool
+
+# Check Karpenter controller logs
+kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter
 ```
+
+### Karpenter Best Practices Applied
+
+**✅ Cost Optimization:**
+- Mixed spot/on-demand instances for cost savings
+- Node consolidation when underutilized
+- Automatic node expiration (24h) for updates
+- Resource limits to prevent runaway costs
+
+**✅ Availability & Performance:**
+- Diverse instance types for better spot availability
+- Excluded expensive instances not needed
+- Fast provisioning (~30 seconds)
+- Proper subnet distribution across AZs
+
+**✅ Security & Management:**
+- Dedicated IAM roles and policies
+- Tagged resources for billing and management
+- Latest AMI selection
+- Proper node initialization
 
 ## 🧪 Load Testing Karpenter
 
 ### Test 1: CPU-Intensive Load
 ```bash
-# Create CPU stress test deployment
+# Create CPU stress test deployment with proper resource requests
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -594,29 +680,33 @@ spec:
       labels:
         app: cpu-stress
     spec:
-      tolerations:
-        - key: karpenter.sh/nodepool
-          operator: Equal
-          value: retail-nodepool
-          effect: NoSchedule
+      # Node affinity to target Karpenter nodes
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: karpenter.sh/nodepool
+                operator: In
+                values: ["retail-nodepool"]
       containers:
       - name: cpu-stress
         image: polinux/stress
         resources:
           requests:
-            cpu: 500m
-            memory: 256Mi
+            cpu: 1000m      # 1 CPU core request
+            memory: 512Mi   # Proper memory request
           limits:
-            cpu: 1000m
+            cpu: 1000m      # Match requests for predictable scheduling
             memory: 512Mi
         command: ["stress"]
-        args: ["--cpu", "1", "--timeout", "300s"]
+        args: ["--cpu", "1", "--timeout", "600s"]
 EOF
 
 # Scale up to trigger node provisioning
-kubectl scale deployment cpu-stress-test --replicas=10
+kubectl scale deployment cpu-stress-test --replicas=8
 
-# Watch nodes being created
+# Watch nodes being created (should provision in ~30 seconds)
 kubectl get nodes --watch
 
 # Monitor Karpenter logs
