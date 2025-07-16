@@ -251,32 +251,19 @@ spec:
       - name: kubernetes-dashboard
         image: kubernetesui/dashboard:v2.7.0
         ports:
-        - containerPort: 8443
+        - containerPort: 9090
         args:
-        - --auto-generate-certificates
-        - --namespace=observability
         - --insecure-bind-address=0.0.0.0
-        - --bind-address=0.0.0.0
         - --insecure-port=9090
         - --enable-insecure-login
+        - --enable-skip-login
+        - --disable-settings-authorizer
         volumeMounts:
-        - name: kubernetes-dashboard-certs
-          mountPath: /certs
         - name: tmp-volume
           mountPath: /tmp
       volumes:
-      - name: kubernetes-dashboard-certs
-        secret:
-          secretName: kubernetes-dashboard-certs
       - name: tmp-volume
         emptyDir: {}
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: kubernetes-dashboard-certs
-  namespace: observability
-type: Opaque
 ---
 apiVersion: v1
 kind: Service
@@ -304,7 +291,7 @@ subjects:
   name: kubernetes-dashboard
   namespace: observability
 ---
-# Application Load Balancer Ingress
+# Application Load Balancer Ingress with Path-based Routing
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -315,55 +302,42 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
-    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-path: /prometheus
     alb.ingress.kubernetes.io/group.name: observability-stack
     alb.ingress.kubernetes.io/tags: Environment=observability,Cluster=retail-eks-cluster,Region=ap-south-1
 spec:
   rules:
-  - host: prometheus.example.com
-    http:
+  - http:
       paths:
-      - path: /
+      - path: /prometheus
         pathType: Prefix
         backend:
           service:
             name: prometheus
             port:
               number: 9090
-  - host: grafana.example.com
-    http:
-      paths:
-      - path: /
+      - path: /grafana
         pathType: Prefix
         backend:
           service:
             name: grafana
             port:
               number: 3000
-  - host: jenkins.example.com
-    http:
-      paths:
-      - path: /
+      - path: /jenkins
         pathType: Prefix
         backend:
           service:
             name: jenkins
             port:
               number: 8080
-  - host: argocd.example.com
-    http:
-      paths:
-      - path: /
+      - path: /argocd
         pathType: Prefix
         backend:
           service:
             name: argocd-server
             port:
               number: 8080
-  - host: dashboard.example.com
-    http:
-      paths:
-      - path: /
+      - path: /dashboard
         pathType: Prefix
         backend:
           service:

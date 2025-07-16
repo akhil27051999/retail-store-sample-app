@@ -52,45 +52,42 @@ kubectl get svc -n observability
 kubectl get ingress -n observability
 ```
 
-### 3. Configure DNS
+### 3. Get ALB URL
 
-Update your DNS records to point to the ALB:
+Get your ALB DNS name for direct access:
 
 ```bash
 # Get ALB DNS name
 kubectl get ingress observability-ingress -n observability -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-Create CNAME records:
-- `prometheus.example.com` → ALB DNS name
-- `grafana.example.com` → ALB DNS name
-- `jenkins.example.com` → ALB DNS name
-- `argocd.example.com` → ALB DNS name
-- `dashboard.example.com` → ALB DNS name
+## Access Information (Path-based Routing)
 
-## Access Information
+### Direct ALB Access URLs
+- **Prometheus**: `http://ALB-DNS-NAME/prometheus`
+- **Grafana**: `http://ALB-DNS-NAME/grafana`
+- **Jenkins**: `http://ALB-DNS-NAME/jenkins`
+- **ArgoCD**: `http://ALB-DNS-NAME/argocd`
+- **Dashboard**: `http://ALB-DNS-NAME/dashboard`
 
-### Grafana
-- **URL**: http://grafana.example.com
-- **Username**: admin
-- **Password**: admin123
+### Login Credentials
 
-### Jenkins
-- **URL**: http://jenkins.example.com
-- **Initial Setup**: Disabled (ready to use)
+**Grafana**
+- Username: admin
+- Password: admin123
 
-### ArgoCD
-- **URL**: http://argocd.example.com
-- **Username**: admin
-- **Password**: Get with `kubectl -n observability get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d`
+**Jenkins**
+- Initial Setup: Disabled (ready to use)
 
-### Kubernetes Dashboard
-- **URL**: http://dashboard.example.com
-- **Authentication**: Cluster admin token
+**ArgoCD**
+- Username: admin
+- Password: Get with `kubectl -n observability get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d`
 
-### Prometheus
-- **URL**: http://prometheus.example.com
-- **No authentication required**
+**Kubernetes Dashboard**
+- Authentication: Cluster admin token
+
+**Prometheus**
+- No authentication required
 
 ## Configuration
 
@@ -159,9 +156,9 @@ kubectl get all -n observability
 # Check ingress status
 kubectl get ingress -n observability
 
-# Test connectivity
-curl -I http://prometheus.example.com
-curl -I http://grafana.example.com
+# Test connectivity (replace ALB-DNS-NAME with actual ALB URL)
+curl -I http://ALB-DNS-NAME/prometheus
+curl -I http://ALB-DNS-NAME/grafana
 ```
 
 ## Cleanup
