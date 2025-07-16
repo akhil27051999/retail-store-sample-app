@@ -1145,7 +1145,7 @@ subjects:
   namespace: kubernetes-dashboard
 EOF
 
-# 3. Create Ingress for Dashboard via existing ALB
+# 3. Create Ingress for Dashboard via existing ALB (HTTP only)
 cat <<EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -1156,9 +1156,8 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/backend-protocol: HTTPS
-    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
 spec:
   rules:
     - http:
@@ -1178,7 +1177,7 @@ EOF
 # Get ALB URL and access token
 export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 export DASHBOARD_TOKEN=$(kubectl -n kubernetes-dashboard create token admin-user)
-echo "🎯 Dashboard URL: https://$ALB_URL/dashboard"
+echo "🎯 Dashboard URL: http://$ALB_URL/dashboard"
 echo "🔑 Access Token:"
 echo $DASHBOARD_TOKEN
 
@@ -1308,9 +1307,10 @@ After deployment, all tools are accessible via the **same ALB** (cost-effective!
 | **Grafana** | `http://<alb-url>/grafana` | admin | admin123 |
 | **Prometheus** | `http://<alb-url>/prometheus` | - | - |
 | **ArgoCD** | `http://<alb-url>/argocd` | admin | `<generated>` |
-| **K8s Dashboard** | `https://<alb-url>/dashboard` | Token | `<generated>` |
+| **K8s Dashboard** | `http://<alb-url>/dashboard` | Token | `<generated>` |
 
-**✅ Cost Savings**: Using 1 ALB instead of 4 LoadBalancers saves ~$54/month!
+**✅ Cost Savings**: Using 1 ALB instead of 4 LoadBalancers saves ~$72/month!
+**🔒 Note**: All services use HTTP (no SSL) to match existing ALB configuration.
 
 ## Benefits of Modern ALB Approach
 
