@@ -432,6 +432,295 @@ kubectl delete -f k8s-manifests/data-tier/databases.yaml
 kubectl delete -f k8s-manifests/namespaces/namespaces.yaml
 ```
 
+## 🚀 Karpenter Auto-Scaling Setup
+
+### What is Karpenter?
+**Karpenter** is a Kubernetes cluster autoscaler that automatically provisions right-sized compute resources in response to changing application load. Unlike traditional cluster autoscalers, Karpenter:
+
+- **Provisions nodes in seconds** (not minutes)
+- **Right-sizes instances** based on actual pod requirements
+- **Supports mixed instance types** and spot instances
+- **Reduces costs** by up to 60% with intelligent instance selection
+- **Eliminates node groups** - provisions nodes directly
+
+### Prerequisites for Karpenter
+```bash
+# 1. Export cluster and region variables
+export CLUSTER_NAME=retail-eks-cluster
+export AWS_DEFAULT_REGION=ap-south-1
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+```
+
+### Step 1: Install Karpenter
+```bash
+# 1. Create Karpenter namespace
+kubectl create namespace karpenter
+
+# 2. Add Karpenter Helm repository
+helm repo add karpenter https://charts.karpenter.sh/
+helm repo update
+
+# 3. Install Karpenter
+helm install karpenter karpenter/karpenter \
+  --version 1.0.7 \
+  --namespace karpenter \
+  --create-namespace \
+  --set settings.clusterName=${CLUSTER_NAME} \
+  --set settings.interruptionQueue=${CLUSTER_NAME} \
+  --set controller.resources.requests.cpu=1 \
+  --set controller.resources.requests.memory=1Gi \
+  --set controller.resources.limits.cpu=1 \
+  --set controller.resources.limits.memory=1Gi
+
+# 4. Verify Karpenter installation
+kubectl get pods -n karpenter
+kubectl logs -f -n karpenter -l app.kubernetes.io/name=karpenter
+```
+
+### Step 2: Create Karpenter NodePool
+```bash
+# Create NodePool configuration
+cat <<EOF | kubectl apply -f -
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: retail-nodepool
+spec:
+  # Template for nodes
+  template:
+    metadata:
+      labels:
+        karpenter.sh/nodepool: retail-nodepool
+    spec:
+      # Node requirements
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium", "t3.large", "t3.xlarge", "m5.large", "m5.xlarge"]
+      # Node properties
+      nodeClassRef:
+        apiVersion: karpenter.k8s.aws/v1beta1
+        kind: EC2NodeClass
+        name: retail-nodeclass
+      # Taints for workload isolation (optional)
+      taints:
+        - key: karpenter.sh/nodepool
+          value: retail-nodepool
+          effect: NoSchedule
+  # Scaling limits
+  limits:
+    cpu: 1000
+    memory: 1000Gi
+  # Disruption settings
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s
+    expireAfter: 2m
+EOF
+```
+
+### Step 3: Create EC2NodeClass
+```bash
+# Create EC2NodeClass configuration
+cat <<EOF | kubectl apply -f -
+apiVersion: karpenter.k8s.aws/v1beta1
+kind: EC2NodeClass
+metadata:
+  name: retail-nodeclass
+spec:
+  # AMI selection
+  amiFamily: AL2
+  
+  # Subnet selection (use your EKS cluster subnets)
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ${CLUSTER_NAME}
+  
+  # Security group selection
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ${CLUSTER_NAME}
+  
+  # Instance profile
+  role: KarpenterNodeInstanceProfile
+  
+  # User data for node initialization
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh ${CLUSTER_NAME}
+    
+  # Instance store policy
+  instanceStorePolicy: RAID0
+  
+  # Tags for created instances
+  tags:
+    Name: Karpenter-${CLUSTER_NAME}
+    Environment: Development
+    ManagedBy: Karpenter
+EOF
+```
+
+### Step 4: Verify Karpenter Setup
+```bash
+# Check Karpenter resources
+kubectl get nodepool
+kubectl get ec2nodeclass
+kubectl get nodes -l karpenter.sh/nodepool
+```
+
+## 🧪 Load Testing Karpenter
+
+### Test 1: CPU-Intensive Load
+```bash
+# Create CPU stress test deployment
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-stress-test
+spec:
+  replicas: 0  # Start with 0, scale up manually
+  selector:
+    matchLabels:
+      app: cpu-stress
+  template:
+    metadata:
+      labels:
+        app: cpu-stress
+    spec:
+      tolerations:
+        - key: karpenter.sh/nodepool
+          operator: Equal
+          value: retail-nodepool
+          effect: NoSchedule
+      containers:
+      - name: cpu-stress
+        image: polinux/stress
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        command: ["stress"]
+        args: ["--cpu", "1", "--timeout", "300s"]
+EOF
+
+# Scale up to trigger node provisioning
+kubectl scale deployment cpu-stress-test --replicas=10
+
+# Watch nodes being created
+kubectl get nodes --watch
+
+# Monitor Karpenter logs
+kubectl logs -f -n karpenter -l app.kubernetes.io/name=karpenter
+```
+
+### Test 2: Memory-Intensive Load
+```bash
+# Create memory stress test
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-stress-test
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: memory-stress
+  template:
+    metadata:
+      labels:
+        app: memory-stress
+    spec:
+      tolerations:
+        - key: karpenter.sh/nodepool
+          operator: Equal
+          value: retail-nodepool
+          effect: NoSchedule
+      containers:
+      - name: memory-stress
+        image: polinux/stress
+        resources:
+          requests:
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+        command: ["stress"]
+        args: ["--vm", "1", "--vm-bytes", "1G", "--timeout", "300s"]
+EOF
+```
+
+### Test 3: Scale Retail Application
+```bash
+# Scale retail application components to test Karpenter
+kubectl scale deployment ui --replicas=5
+kubectl scale deployment catalog --replicas=3
+kubectl scale deployment carts --replicas=3
+kubectl scale deployment orders --replicas=3
+kubectl scale deployment checkout --replicas=3
+
+# Watch pod scheduling and node provisioning
+kubectl get pods -o wide --watch
+```
+
+### Monitoring Karpenter Performance
+```bash
+# Check node provisioning
+kubectl get nodes -l karpenter.sh/nodepool --show-labels
+
+# Check Karpenter metrics
+kubectl top nodes
+kubectl top pods
+
+# View Karpenter events
+kubectl get events --sort-by='.lastTimestamp' | grep -i karpenter
+
+# Check node costs (if cost monitoring enabled)
+kubectl describe nodes -l karpenter.sh/nodepool
+```
+
+### Cleanup Load Tests
+```bash
+# Scale down test deployments
+kubectl scale deployment cpu-stress-test --replicas=0
+kubectl delete deployment memory-stress-test
+
+# Scale down retail application
+kubectl scale deployment ui --replicas=1
+kubectl scale deployment catalog --replicas=1
+kubectl scale deployment carts --replicas=1
+kubectl scale deployment orders --replicas=1
+kubectl scale deployment checkout --replicas=1
+
+# Karpenter will automatically terminate unused nodes
+```
+
+### Karpenter Cost Optimization Features
+
+**Spot Instance Support:**
+- Automatically uses spot instances when available
+- Falls back to on-demand if spot unavailable
+- Can save up to 90% on compute costs
+
+**Right-Sizing:**
+- Provisions exact instance types needed
+- Considers CPU, memory, and storage requirements
+- Avoids over-provisioning
+
+**Fast Scaling:**
+- Provisions nodes in ~30 seconds
+- Terminates unused nodes quickly
+- Reduces idle resource costs
+
 ## Benefits of Modern ALB Approach
 
 - **Cost Effective**: 20% savings over Classic Load Balancer
