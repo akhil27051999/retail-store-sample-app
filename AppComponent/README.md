@@ -523,6 +523,41 @@ kubectl get pods -n karpenter
 kubectl logs -f -n karpenter -l app.kubernetes.io/name=karpenter
 ```
 
+#### If Installation Fails ("cannot re-use a name that is still in use")
+```bash
+# Check existing Helm releases
+helm list -n karpenter
+
+# Option 1: Uninstall and reinstall
+helm uninstall karpenter -n karpenter
+sleep 10
+
+# Then run the install command again
+helm install karpenter karpenter/karpenter \
+  --version 0.16.3 \
+  --namespace karpenter \
+  --create-namespace \
+  --set settings.clusterName=${CLUSTER_NAME} \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=karpenter \
+  --set controller.resources.requests.cpu=1 \
+  --set controller.resources.requests.memory=1Gi \
+  --set controller.resources.limits.cpu=1 \
+  --set controller.resources.limits.memory=1Gi
+
+# Option 2: Upgrade existing installation
+helm upgrade karpenter karpenter/karpenter \
+  --version 0.16.3 \
+  --namespace karpenter \
+  --set settings.clusterName=${CLUSTER_NAME} \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=karpenter \
+  --set controller.resources.requests.cpu=1 \
+  --set controller.resources.requests.memory=1Gi \
+  --set controller.resources.limits.cpu=1 \
+  --set controller.resources.limits.memory=1Gi
+```
+
 ### Step 3: Create Karpenter NodePool
 ```bash
 # Create NodePool configuration with best practices
