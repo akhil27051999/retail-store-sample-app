@@ -1,0 +1,50 @@
+# License Information
+
+## Original Work
+This repository is a fork of the AWS Containers Retail Sample Application.
+
+**Original Repository**: https://github.com/aws-containers/retail-store-sample-app  
+**Original Copyright**: Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+## Fork Purpose
+This fork has been created for **educational and learning purposes only**. The modifications include:
+- CloudFormation templates for VPC and EKS management infrastructure
+- Regional configuration updates for ap-south-1 (Asia Pacific - Mumbai)
+- Documentation updates for deployment in different AWS regions
+- Additional infrastructure automation scripts
+
+## Original License (MIT-0)
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Educational Use Disclaimer
+**This project is intended for educational purposes only and not for production use.**
+
+The modifications and additions to this fork are provided for learning AWS container
+services, infrastructure as code, and cloud architecture patterns. Users should:
+
+- Review and understand all code before deployment
+- Follow AWS security best practices
+- Monitor AWS costs during experimentation
+- Clean up resources after learning exercises
+- Refer to official AWS documentation for production deployments
+
+## Attribution
+When using this educational fork, please maintain attribution to:
+1. Original AWS Containers team for the base application
+2. This educational fork for infrastructure modifications
+
+## Support
+This is an educational fork. For issues with the original application, refer to the
+original AWS repository. For infrastructure-specific questions related to this fork,
+please use the Issues section of this repository.
