@@ -21,26 +21,23 @@ This document provides instructions for deploying a comprehensive observability 
 
 ## Installation Steps
 
-### 1. Install AWS Load Balancer Controller
+### 1. Configure Observability ALB Service Account
+
+**Note**: Since you already have an ALB setup in AppComponent/kubernetesv02.yaml, this uses a separate service account.
 
 ```bash
-# Create IAM role for AWS Load Balancer Controller
+# Create IAM role for Observability ALB Controller (separate from existing ALB)
 eksctl create iamserviceaccount \
-  --cluster=your-cluster-name \
+  --cluster=retail-eks-cluster \
+  --region=ap-south-1 \
   --namespace=kube-system \
-  --name=aws-load-balancer-controller \
-  --role-name=AmazonEKSLoadBalancerControllerRole \
+  --name=observability-alb-controller \
+  --role-name=ObservabilityALBControllerRole \
   --attach-policy-arn=arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess \
   --approve
 
-# Install AWS Load Balancer Controller
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=your-cluster-name \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
+# Update the observability.yaml file with your AWS Account ID
+# Replace ACCOUNT_ID in the service account annotation
 ```
 
 ### 2. Deploy Observability Stack
@@ -201,4 +198,14 @@ For issues related to:
 
 ---
 
-**Note**: Replace `example.com` with your actual domain name and update the AWS account ID in the service account annotation.
+**Configuration Notes**:
+- **Cluster**: retail-eks-cluster (ap-south-1)
+- **Existing ALB**: Your AppComponent/kubernetesv02.yaml already creates an ALB
+- **Separate ALB**: This observability stack creates its own ALB with group name 'observability-stack'
+- **Domain**: Replace `example.com` with your actual domain
+- **AWS Account**: Update ACCOUNT_ID in the service account annotation
+
+**Integration with Existing Setup**:
+- Uses different ALB group name to avoid conflicts
+- Separate service account (observability-alb-controller)
+- Can coexist with your existing retail store ALB
