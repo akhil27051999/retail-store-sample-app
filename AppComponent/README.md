@@ -505,9 +505,9 @@ aws iam add-role-to-instance-profile --instance-profile-name KarpenterNodeInstan
 helm repo add karpenter https://charts.karpenter.sh/
 helm repo update
 
-# 2. Install Karpenter (latest stable version)
+# 2. Install Karpenter (available stable version)
 helm install karpenter karpenter/karpenter \
-  --version 1.0.7 \
+  --version 0.16.3 \
   --namespace karpenter \
   --create-namespace \
   --set settings.clusterName=${CLUSTER_NAME} \
@@ -527,48 +527,43 @@ kubectl logs -f -n karpenter -l app.kubernetes.io/name=karpenter
 ```bash
 # Create NodePool configuration with best practices
 cat <<EOF | kubectl apply -f -
-apiVersion: karpenter.sh/v1
-kind: NodePool
+apiVersion: karpenter.sh/v1alpha5
+kind: Provisioner
 metadata:
-  name: retail-nodepool
+  name: retail-provisioner
 spec:
-  # Template for nodes
-  template:
-    metadata:
-      labels:
-        karpenter.sh/nodepool: retail-nodepool
-        billing-team: retail-team
-    spec:
-      # Node requirements - diverse instance types for better spot availability
-      requirements:
-        - key: kubernetes.io/arch
-          operator: In
-          values: ["amd64"]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["spot", "on-demand"]
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values: ["t3.medium", "t3.large", "t3.xlarge", "m5.large", "m5.xlarge", "c5.large", "c5.xlarge"]
-        # Exclude expensive instances not needed for retail workload
-        - key: node.kubernetes.io/instance-type
-          operator: NotIn
-          values: ["m6g.16xlarge", "r6g.16xlarge", "c6g.16xlarge"]
-      # Node properties
-      nodeClassRef:
-        apiVersion: karpenter.k8s.aws/v1beta1
-        kind: EC2NodeClass
-        name: retail-nodeclass
-      # Node expiration for regular updates (best practice)
-      expireAfter: 24h
+  # Node requirements - diverse instance types for better spot availability
+  requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values: ["amd64"]
+    - key: karpenter.sh/capacity-type
+      operator: In
+      values: ["spot", "on-demand"]
+    - key: node.kubernetes.io/instance-type
+      operator: In
+      values: ["t3.medium", "t3.large", "t3.xlarge", "m5.large", "m5.xlarge", "c5.large", "c5.xlarge"]
+    # Exclude expensive instances not needed for retail workload
+    - key: node.kubernetes.io/instance-type
+      operator: NotIn
+      values: ["m6g.16xlarge", "r6g.16xlarge", "c6g.16xlarge"]
   # Scaling limits to control costs
   limits:
-    cpu: 1000
-    memory: 1000Gi
-  # Disruption settings for cost optimization
-  disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 1m
+    resources:
+      cpu: 1000
+      memory: 1000Gi
+  # Node properties
+  providerRef:
+    name: retail-nodepool
+  # Node expiration for regular updates (best practice)
+  ttlSecondsAfterEmpty: 30
+  # Labels for nodes
+  labels:
+    karpenter.sh/provisioner: retail-provisioner
+    billing-team: retail-team
+  # Consolidation settings
+  consolidation:
+    enabled: true
 EOF
 ```
 
@@ -588,37 +583,31 @@ done
 CLUSTER_SG=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 aws ec2 create-tags --resources $CLUSTER_SG --tags Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}
 
-# Create EC2NodeClass configuration
+# Create AWSNodePool configuration
 cat <<EOF | kubectl apply -f -
-apiVersion: karpenter.k8s.aws/v1beta1
-kind: EC2NodeClass
+apiVersion: karpenter.k8s.aws/v1alpha1
+kind: AWSNodePool
 metadata:
-  name: retail-nodeclass
+  name: retail-nodepool
 spec:
-  # AMI selection - pin to specific version for production (best practice)
-  amiSelectorTerms:
-    - alias: al2023@latest  # Use al2023@v20240807 for production
-  
   # Subnet selection using discovery tags
-  subnetSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: ${CLUSTER_NAME}
+  subnetSelector:
+    karpenter.sh/discovery: ${CLUSTER_NAME}
   
   # Security group selection using discovery tags
-  securityGroupSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: ${CLUSTER_NAME}
+  securityGroupSelector:
+    karpenter.sh/discovery: ${CLUSTER_NAME}
   
   # Instance profile for node permissions
-  role: KarpenterNodeInstanceProfile
+  instanceProfile: KarpenterNodeInstanceProfile
+  
+  # AMI family selection
+  amiFamily: AL2
   
   # User data for node initialization
   userData: |
     #!/bin/bash
     /etc/eks/bootstrap.sh ${CLUSTER_NAME}
-    
-  # Instance store policy for better performance
-  instanceStorePolicy: RAID0
   
   # Tags for created instances
   tags:
@@ -632,9 +621,9 @@ EOF
 ### Step 5: Verify Karpenter Setup
 ```bash
 # Check Karpenter resources
-kubectl get nodepool
-kubectl get ec2nodeclass
-kubectl get nodes -l karpenter.sh/nodepool
+kubectl get provisioner
+kubectl get awsnodepool
+kubectl get nodes -l karpenter.sh/provisioner
 
 # Check Karpenter controller logs
 kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter
@@ -686,9 +675,9 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: karpenter.sh/nodepool
+              - key: karpenter.sh/provisioner
                 operator: In
-                values: ["retail-nodepool"]
+                values: ["retail-provisioner"]
       containers:
       - name: cpu-stress
         image: polinux/stress
