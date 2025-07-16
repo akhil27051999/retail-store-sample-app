@@ -312,35 +312,30 @@ spec:
       - name: kubernetes-dashboard
         image: kubernetesui/dashboard:v2.7.0
         ports:
-        - containerPort: 9090
+        - containerPort: 8443
         args:
-        - --insecure-bind-address=0.0.0.0
-        - --insecure-port=9090
-        - --enable-insecure-login
+        - --auto-generate-certificates
+        - --namespace=observability
         - --enable-skip-login
         - --disable-settings-authorizer
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 9090
-          initialDelaySeconds: 60
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 5
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 9090
-          initialDelaySeconds: 30
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 3
         volumeMounts:
+        - name: kubernetes-dashboard-certs
+          mountPath: /certs
         - name: tmp-volume
           mountPath: /tmp
       volumes:
+      - name: kubernetes-dashboard-certs
+        secret:
+          secretName: kubernetes-dashboard-certs
       - name: tmp-volume
         emptyDir: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubernetes-dashboard-certs
+  namespace: observability
+type: Opaque
 ---
 apiVersion: v1
 kind: Service
@@ -351,8 +346,8 @@ spec:
   selector:
     app: kubernetes-dashboard
   ports:
-  - port: 9090
-    targetPort: 9090
+  - port: 8443
+    targetPort: 8443
 ---
 # Node Exporter DaemonSet
 apiVersion: apps/v1
@@ -437,14 +432,19 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/alertmanager
+        - name: storage
+          mountPath: /alertmanager
         args:
         - --config.file=/etc/alertmanager/alertmanager.yml
         - --storage.path=/alertmanager
         - --web.external-url=/alertmanager
+        - --web.route-prefix=/alertmanager
       volumes:
       - name: config
         configMap:
           name: alertmanager-config
+      - name: storage
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -592,7 +592,7 @@ spec:
           service:
             name: kubernetes-dashboard
             port:
-              number: 9090
+              number: 8443
       - path: /alertmanager
         pathType: Prefix
         backend:
