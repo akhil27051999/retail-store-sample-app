@@ -44,6 +44,7 @@ spec:
         - '--web.console.libraries=/etc/prometheus/console_libraries'
         - '--web.console.templates=/etc/prometheus/consoles'
         - '--web.enable-lifecycle'
+        - '--web.external-url=/prometheus'
       volumes:
       - name: config
         configMap:
@@ -66,6 +67,15 @@ data:
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
         action: keep
         regex: true
+    - job_name: 'node-exporter'
+      static_configs:
+      - targets: ['node-exporter:9100']
+    - job_name: 'prometheus'
+      static_configs:
+      - targets: ['localhost:9090']
+    - job_name: 'alertmanager'
+      static_configs:
+      - targets: ['alertmanager:9093']
 ---
 apiVersion: v1
 kind: Service
@@ -103,6 +113,10 @@ spec:
         env:
         - name: GF_SECURITY_ADMIN_PASSWORD
           value: "admin123"
+        - name: GF_SERVER_ROOT_URL
+          value: "/grafana"
+        - name: GF_SERVER_SERVE_FROM_SUB_PATH
+          value: "true"
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -147,6 +161,8 @@ spec:
         env:
         - name: JAVA_OPTS
           value: "-Djenkins.install.runSetupWizard=false"
+        - name: JENKINS_OPTS
+          value: "--prefix=/jenkins"
         volumeMounts:
         - name: jenkins-home
           mountPath: /var/jenkins_home
@@ -204,9 +220,13 @@ spec:
         - --insecure
         - --staticassets
         - /shared/app
+        - --basehref
+        - /argocd
         env:
         - name: ARGOCD_SERVER_INSECURE
           value: "true"
+        - name: ARGOCD_SERVER_BASEHREF
+          value: "/argocd"
 ---
 apiVersion: v1
 kind: Service
@@ -258,6 +278,19 @@ spec:
         - --enable-insecure-login
         - --enable-skip-login
         - --disable-settings-authorizer
+        - --namespace=observability
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9090
+          initialDelaySeconds: 30
+          timeoutSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9090
+          initialDelaySeconds: 10
+          timeoutSeconds: 30
         volumeMounts:
         - name: tmp-volume
           mountPath: /tmp
@@ -276,6 +309,173 @@ spec:
   ports:
   - port: 9090
     targetPort: 9090
+---
+# Node Exporter DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:v1.6.1
+        ports:
+        - containerPort: 9100
+        args:
+        - --path.procfs=/host/proc
+        - --path.sysfs=/host/sys
+        - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: root
+          mountPath: /rootfs
+          readOnly: true
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: root
+        hostPath:
+          path: /
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: observability
+spec:
+  selector:
+    app: node-exporter
+  ports:
+  - port: 9100
+    targetPort: 9100
+---
+# AlertManager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.26.0
+        ports:
+        - containerPort: 9093
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alertmanager
+        args:
+        - --config.file=/etc/alertmanager/alertmanager.yml
+        - --storage.path=/alertmanager
+        - --web.external-url=/alertmanager
+      volumes:
+      - name: config
+        configMap:
+          name: alertmanager-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+data:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'localhost:587'
+      smtp_from: 'alertmanager@example.org'
+    route:
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'web.hook'
+    receivers:
+    - name: 'web.hook'
+      webhook_configs:
+      - url: 'http://127.0.0.1:5001/'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  selector:
+    app: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+---
+# Jaeger All-in-One Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:1.51
+        ports:
+        - containerPort: 16686
+        - containerPort: 14268
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: observability
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: ui
+    port: 16686
+    targetPort: 16686
+  - name: collector
+    port: 14268
+    targetPort: 14268
 ---
 # RBAC for Kubernetes Dashboard
 apiVersion: rbac.authorization.k8s.io/v1
@@ -344,3 +544,17 @@ spec:
             name: kubernetes-dashboard
             port:
               number: 9090
+      - path: /alertmanager
+        pathType: Prefix
+        backend:
+          service:
+            name: alertmanager
+            port:
+              number: 9093
+      - path: /jaeger
+        pathType: Prefix
+        backend:
+          service:
+            name: jaeger
+            port:
+              number: 16686

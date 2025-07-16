@@ -18,6 +18,9 @@ This document provides instructions for deploying a comprehensive observability 
 | Jenkins | 2.426.1-lts | 8080 | CI/CD pipeline automation |
 | ArgoCD | v2.9.3 | 8080 | GitOps continuous deployment |
 | Kubernetes Dashboard | v2.7.0 | 9090 | Cluster management interface |
+| AlertManager | v0.26.0 | 9093 | Alert management and routing |
+| Jaeger | 1.51 | 16686 | Distributed tracing |
+| Node Exporter | v1.6.1 | 9100 | Node metrics collection |
 
 ## Installation Steps
 
@@ -69,6 +72,8 @@ kubectl get ingress observability-ingress -n observability -o jsonpath='{.status
 - **Jenkins**: `http://ALB-DNS-NAME/jenkins`
 - **ArgoCD**: `http://ALB-DNS-NAME/argocd`
 - **Dashboard**: `http://ALB-DNS-NAME/dashboard`
+- **AlertManager**: `http://ALB-DNS-NAME/alertmanager`
+- **Jaeger**: `http://ALB-DNS-NAME/jaeger`
 
 ### Login Credentials
 
