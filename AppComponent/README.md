@@ -942,37 +942,66 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
   --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
   --set grafana.adminPassword=admin123 \
-  --set grafana.service.type=LoadBalancer \
-  --set prometheus.service.type=LoadBalancer
+  --set grafana.service.type=ClusterIP \
+  --set prometheus.service.type=ClusterIP
 
 # 4. Wait for deployment
 kubectl wait --for=condition=available deployment --all -n monitoring --timeout=300s
 ```
 
-### Step 2: Access Grafana Dashboard
+### Step 2: Expose Grafana via Existing ALB
 ```bash
-# Get Grafana LoadBalancer URL
-kubectl get service prometheus-grafana -n monitoring
+# Create Ingress to expose Grafana through existing ALB
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-grafana
+                port:
+                  number: 80
+          - path: /prometheus
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-kube-prometheus-prometheus
+                port:
+                  number: 9090
+EOF
 
-# Get external IP/hostname
-export GRAFANA_URL=$(kubectl get service prometheus-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "🎯 Grafana URL: http://$GRAFANA_URL"
+# Get ALB URL (same as your retail store)
+export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "🎯 Grafana URL: http://$ALB_URL/grafana"
+echo "📊 Prometheus URL: http://$ALB_URL/prometheus"
 echo "👤 Username: admin"
 echo "🔑 Password: admin123"
-
-# Port forward if LoadBalancer not available
-# kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Then access: http://localhost:3000
 ```
 
-### Step 3: Access Prometheus
+### Step 3: Configure Grafana for Subpath
 ```bash
-# Get Prometheus URL
-export PROMETHEUS_URL=$(kubectl get service prometheus-kube-prometheus-prometheus -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "📊 Prometheus URL: http://$PROMETHEUS_URL:9090"
+# Update Grafana configuration to work with subpath
+helm upgrade prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --reuse-values \
+  --set grafana.grafana\.ini.server.root_url="http://localhost:3000/grafana" \
+  --set grafana.grafana\.ini.server.serve_from_sub_path=true
 
-# Port forward if LoadBalancer not available
-# kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+# Wait for Grafana to restart
+kubectl rollout status deployment/prometheus-grafana -n monitoring
 ```
 
 ### Step 4: Pre-configured Dashboards
@@ -1002,24 +1031,43 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 # 3. Wait for deployment
 kubectl wait --for=condition=available deployment --all -n argocd --timeout=300s
 
-# 4. Patch ArgoCD server service to LoadBalancer
-kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+# 4. ArgoCD server will use ClusterIP (default) for Ingress integration
 ```
 
-### Step 2: Access ArgoCD UI
+### Step 2: Expose ArgoCD via Existing ALB
 ```bash
-# Get ArgoCD server URL
-export ARGOCD_URL=$(kubectl get service argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "🎯 ArgoCD URL: http://$ARGOCD_URL"
+# Create Ingress to expose ArgoCD through existing ALB
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /argocd
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+EOF
 
-# Get initial admin password
+# Get ALB URL and ArgoCD password
+export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 export ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+echo "🎯 ArgoCD URL: http://$ALB_URL/argocd"
 echo "👤 Username: admin"
 echo "🔑 Password: $ARGOCD_PASSWORD"
-
-# Port forward if LoadBalancer not available
-# kubectl port-forward svc/argocd-server -n argocd 8080:443
-# Then access: https://localhost:8080
 ```
 
 ### Step 3: Configure ArgoCD CLI (Optional)
@@ -1097,22 +1145,44 @@ subjects:
   namespace: kubernetes-dashboard
 EOF
 
-# 3. Patch dashboard service to LoadBalancer
-kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{"spec": {"type": "LoadBalancer"}}'
+# 3. Create Ingress for Dashboard via existing ALB
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard-ingress
+  namespace: kubernetes-dashboard
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/backend-protocol: HTTPS
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: kubernetes-dashboard
+                port:
+                  number: 443
+EOF
 ```
 
 ### Step 2: Access Kubernetes Dashboard
 ```bash
-# Get Dashboard URL
-export DASHBOARD_URL=$(kubectl get service kubernetes-dashboard -n kubernetes-dashboard -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "🎯 Dashboard URL: https://$DASHBOARD_URL"
-
-# Get access token
+# Get ALB URL and access token
+export ALB_URL=$(kubectl get ingress retail-store-alb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 export DASHBOARD_TOKEN=$(kubectl -n kubernetes-dashboard create token admin-user)
+echo "🎯 Dashboard URL: https://$ALB_URL/dashboard"
 echo "🔑 Access Token:"
 echo $DASHBOARD_TOKEN
 
-# Port forward if LoadBalancer not available
+# Alternative: Port forward if Ingress has issues
 # kubectl proxy
 # Then access: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
 ```
@@ -1230,15 +1300,17 @@ kubectl delete -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/
 
 ## 🎯 Access Summary
 
-After deployment, you'll have access to:
+After deployment, all tools are accessible via the **same ALB** (cost-effective!):
 
 | Tool | URL | Username | Password |
 |------|-----|----------|----------|
-| **Grafana** | `http://<grafana-lb>` | admin | admin123 |
-| **Prometheus** | `http://<prometheus-lb>:9090` | - | - |
-| **ArgoCD** | `http://<argocd-lb>` | admin | `<generated>` |
-| **K8s Dashboard** | `https://<dashboard-lb>` | Token | `<generated>` |
-| **Retail Store** | `http://<alb-url>` | - | - |
+| **Retail Store** | `http://<alb-url>/` | - | - |
+| **Grafana** | `http://<alb-url>/grafana` | admin | admin123 |
+| **Prometheus** | `http://<alb-url>/prometheus` | - | - |
+| **ArgoCD** | `http://<alb-url>/argocd` | admin | `<generated>` |
+| **K8s Dashboard** | `https://<alb-url>/dashboard` | Token | `<generated>` |
+
+**✅ Cost Savings**: Using 1 ALB instead of 4 LoadBalancers saves ~$54/month!
 
 ## Benefits of Modern ALB Approach
 
