@@ -1,28 +1,41 @@
+# System files
 .DS_Store
+*.log
+
+# Terraform files
 *.tfvars
 .terraform
 *.tfstate*
 *.lock.hcl
-*.log
+
+# IDE and editor files
 .vscode
-reports
-env
-oss-output
-kubeconfig_*
 .idea
+
+# Build and dependency directories
 node_modules
 dist
 .venv
-
+env
 ort-build
 
+# Kubernetes config files
+kubeconfig_*
+
+# Helm charts
 Chart.lock
 **/charts/*.tgz
 
+# NX cache
 .nx/cache
 .nx/workspace-data
 
+# Reports and output
+reports
+oss-output
 screenshots
+
+# Development environment
 # Devenv
 .devenv*
 devenv.local.nix
@@ -30,4 +43,5 @@ devenv.local.nix
 # direnv
 .direnv
 
+# Pre-commit hooks
 .pre-commit-config.yaml
